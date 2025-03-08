@@ -305,14 +305,16 @@ function TimeSeriesChart(props) {
             data.push(buckets[key][level] || 0);
           }
 
+          const levelKey = level as keyof typeof levelColors;
           datasets.push({
             label: level,
             data,
             backgroundColor:
-              levelColors[level]?.backgroundColor ||
+              levelColors[levelKey]?.backgroundColor ||
               levelColors.OTHER.backgroundColor,
             borderColor:
-              levelColors[level]?.borderColor || levelColors.OTHER.borderColor,
+              levelColors[levelKey]?.borderColor ||
+              levelColors.OTHER.borderColor,
             borderWidth: 1,
           });
         }
@@ -554,7 +556,7 @@ function TimeSeriesChart(props) {
         },
       },
       interaction: {
-        mode: "index",
+        mode: "nearest" as const,
         intersect: false,
       },
       willReadFrequently: true,
