@@ -41,8 +41,17 @@ const DivWithRef = forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   (props, ref) => <div ref={ref} {...props} />,
 );
 
+interface FilterBadgeProps {
+  filter: FilterItem;
+  colorIndex: number;
+  matchCount: number;
+  percentage: string;
+  onRemove: (id: string) => void;
+  onToggleType: (id: string) => void;
+}
+
 // Memoized filter item to prevent unnecessary re-renders
-const FilterBadge = memo(
+const FilterBadge = memo<FilterBadgeProps>(
   ({ filter, colorIndex, matchCount, percentage, onRemove, onToggleType }) => {
     const colors = getFilterColor(filter.type, colorIndex);
 

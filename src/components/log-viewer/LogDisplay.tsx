@@ -66,8 +66,16 @@ const ButtonWithRef = forwardRef<
   React.ComponentProps<typeof Button>
 >((props, ref) => <Button ref={ref} {...props} />);
 
+interface LogEntryRowProps {
+  entry: LogEntry;
+  index: number;
+  wrapText: boolean;
+  highlightText: (text: string) => React.ReactNode;
+  onContextMenu: (e: React.MouseEvent) => void;
+}
+
 // Memoized log entry component for better performance
-const LogEntryRow = memo(
+const LogEntryRow = memo<LogEntryRowProps>(
   ({ entry, index, wrapText, highlightText, onContextMenu }) => {
     return (
       <div
