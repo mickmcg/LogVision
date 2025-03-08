@@ -518,7 +518,7 @@ function TimeSeriesChart(props) {
       // animation: false, // Already disabled above
       plugins: {
         legend: {
-          position: "top",
+          position: "top" as const,
         },
         title: {
           display: false,
