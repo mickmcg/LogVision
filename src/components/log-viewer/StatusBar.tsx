@@ -18,7 +18,7 @@ const StatusBar = ({
           <Badge variant="secondary">{totalLines.toLocaleString()}</Badge>
         </div>
         <div>
-          Filtered Lines:{" "}
+          Visible Lines:{" "}
           <Badge variant="secondary">{filteredLines.toLocaleString()}</Badge>
         </div>
       </div>

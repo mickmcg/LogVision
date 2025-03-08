@@ -67,11 +67,14 @@ export interface ParsedLogLine {
 const DATE_FORMATS = [
   "yyyy-MM-dd HH:mm:ss", // 2024-12-12 01:48:36
   "dd-MMM-yyyy HH:mm:ss.SSS", // 25-Dec-2024 00:00:06.596
+  "dd-MMM-yyyy HH:mm:ss", // 25-Dec-2024 00:00:06
+  "dd/MMM/yyyy:HH:mm:ss", // Apache format: 22/Dec/2024:07:04:02
   "yyyy-MM-dd'T'HH:mm:ss.SSSX", // ISO format
   "yyyy-MM-dd'T'HH:mm:ssX", // ISO format without ms
   "MM/dd/yyyy HH:mm:ss", // American format
   "dd/MM/yyyy HH:mm:ss", // European format
   "yyyy.MM.dd HH:mm:ss", // Dot separated
+  "yyyy/MM/dd HH:mm:ss", // Slash separated with year first: 2025/01/13 12:51:06
 ];
 
 const tryParseDate = (timestamp: string, format: string): Date | null => {
@@ -83,30 +86,84 @@ const tryParseDate = (timestamp: string, format: string): Date | null => {
   }
 };
 
+// Keep track of the last valid timestamp for stacktrace lines
+let lastValidTimestamp = "-";
+
 export const parseLogLine = (line: string): ParsedLogLine => {
+  // Handle undefined or null lines
+  if (line === undefined || line === null) {
+    // Reset the lastValidTimestamp when undefined is passed
+    if (line === undefined) {
+      lastValidTimestamp = "-";
+    }
+    return {
+      timestamp: lastValidTimestamp,
+      message: "",
+    };
+  }
+
   // Skip empty lines
   if (!line.trim()) {
     return {
-      timestamp: "-",
+      timestamp: lastValidTimestamp,
+      message: line,
+    };
+  }
+
+  // Try to match common log formats
+
+  // Format: 07-Mar-2025 00:00:00.744 [INFO] Starting application
+  const timestampWithMillisMatch = line.match(
+    /^(\d{2}-[A-Za-z]{3}-\d{4}\s\d{2}:\d{2}:\d{2}\.\d{3})\s+(.+)/,
+  );
+  if (timestampWithMillisMatch) {
+    lastValidTimestamp = timestampWithMillisMatch[1];
+    return {
+      timestamp: lastValidTimestamp,
+      message: line,
+    };
+  }
+
+  // Format: 2024-12-21 21:41:36 ERROR [thread-94] org.apache.coyote.AbstractProtocol
+  const standardLogMatch = line.match(
+    /^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\s+([A-Z]+)\s+\[(.+?)\]\s+(.+)/,
+  );
+  if (standardLogMatch) {
+    lastValidTimestamp = standardLogMatch[1];
+    return {
+      timestamp: lastValidTimestamp,
+      message: line,
+    };
+  }
+
+  // Try Apache format first (since it's more specific)
+  const apacheMatch = line.match(
+    /\[(\d{2}\/[A-Za-z]+\/\d{4}:\d{2}:\d{2}:\d{2})\s*]/i,
+  );
+  if (apacheMatch) {
+    lastValidTimestamp = apacheMatch[1];
+    return {
+      timestamp: lastValidTimestamp,
       message: line,
     };
   }
 
   // Match various timestamp formats
   const timestampRegex =
-    /(\d{4}-\d{2}-\d{2}(?:[T\s])\d{1,2}:\d{2}:\d{2}(?:\.\d{3})?(?:[Z])?|\d{2}[-/](?:[A-Za-z]+|\d{2})[-/]\d{4}\s\d{1,2}:\d{2}:\d{2}(?:\.\d{3})?)/;
+    /(\d{4}-\d{2}-\d{2}(?:[T\s])\d{1,2}:\d{2}:\d{2}(?:\.\d{3})?(?:[Z])?|\d{2}[-/](?:[A-Za-z]+|\d{2})[-/]\d{4}(?:\s|:)\d{1,2}:\d{2}:\d{2}(?:\.\d{3})?|\d{4}\/\d{2}\/\d{2}\s\d{1,2}:\d{2}:\d{2}(?:\.\d{3})?)/;
   const match = line.match(timestampRegex);
 
   if (match) {
-    const timestamp = match[1];
+    lastValidTimestamp = match[1];
     return {
-      timestamp,
+      timestamp: lastValidTimestamp,
       message: line,
     };
   }
 
+  // If no timestamp is found, use the last valid timestamp (for stacktraces)
   return {
-    timestamp: "-",
+    timestamp: lastValidTimestamp,
     message: line,
   };
 };
@@ -126,6 +183,18 @@ export const parseTimestamp = (timestamp: string): Date | undefined => {
       const date = tryParseDate(timestamp, format);
       if (date) return date;
     }
+
+    // Try to parse standard log format: 2024-12-21 21:41:36
+    if (timestamp.match(/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$/)) {
+      const date = new Date(timestamp.replace(" ", "T"));
+      if (isValid(date)) return date;
+    }
+
+    // Try direct Date constructor as last resort
+    try {
+      const date = new Date(timestamp);
+      if (isValid(date) && date.getFullYear() > 2000) return date;
+    } catch {}
 
     return undefined;
   } catch (error) {
