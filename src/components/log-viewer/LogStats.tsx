@@ -24,7 +24,7 @@ interface LogStatsProps {
   onToggle?: () => void;
   showStats?: boolean;
   showHourlyActivity?: boolean;
-  onAddFilter?: (term: string) => void;
+  onAddFilter?: (term: string, type?: "include" | "exclude") => void;
 }
 
 const LogStats = (props: LogStatsProps) => {
@@ -55,10 +55,14 @@ const LogStats = (props: LogStatsProps) => {
     allEntries.forEach((entry) => {
       // Extract log level
       const levelMatch =
-        entry.message.match(/\[(INFO|ERROR|WARN|DEBUG|SEVERE)\]/i) ||
-        entry.message.match(/\s(INFO|ERROR|WARN|DEBUG|SEVERE)\s/i);
+        entry.message.match(/\[(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\]/i) ||
+        entry.message.match(/\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\s/i);
 
-      const level = levelMatch ? levelMatch[1].toUpperCase() : "OTHER";
+      const level = levelMatch
+        ? levelMatch[1].toUpperCase() === "WARNING"
+          ? "WARN"
+          : levelMatch[1].toUpperCase()
+        : "OTHER";
       levels.set(level, (levels.get(level) || 0) + 1);
       if (level === "ERROR") errorCount++;
       if (level === "WARN") warningCount++;
@@ -176,51 +180,8 @@ const LogStats = (props: LogStatsProps) => {
                 <div className="flex items-center gap-2">
                   <BarChart className="h-4 w-4" />
                   <span>Log Levels</span>
-                  {props.entries !== props.allEntries && props.allEntries && (
-                    <span className="text-xs text-blue-500 ml-2">
-                      (Filtered by time range)
-                    </span>
-                  )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={() => setShowLevels(!showLevels)}
-                  >
-                    {showLevels ? (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="lucide lucide-chevron-up"
-                      >
-                        <path d="m18 15-6-6-6 6" />
-                      </svg>
-                    ) : (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="lucide lucide-chevron-down"
-                      >
-                        <path d="m6 9 6 6 6-6" />
-                      </svg>
-                    )}
-                  </Button>
                   {onToggle && (
                     <Button
                       variant="ghost"
@@ -256,7 +217,24 @@ const LogStats = (props: LogStatsProps) => {
                       <Badge
                         variant="outline"
                         className={`${levelColors[level]?.bg || levelColors.OTHER.bg} ${levelColors[level]?.text || levelColors.OTHER.text} border ${levelColors[level]?.border || levelColors.OTHER.border} cursor-pointer hover:ring-1 hover:ring-offset-1`}
-                        onClick={() => props.onAddFilter?.(level)}
+                        onClick={() => {
+                          if (level === "OTHER") {
+                            // For OTHER, add exclude filters for all standard log levels
+                            const standardLevels = [
+                              "INFO",
+                              "ERROR",
+                              "WARN",
+                              "WARNING",
+                              "DEBUG",
+                              "SEVERE",
+                            ];
+                            standardLevels.forEach((lvl) =>
+                              props.onAddFilter?.(lvl, "exclude"),
+                            );
+                          } else {
+                            props.onAddFilter?.(level, "include");
+                          }
+                        }}
                       >
                         {level}
                       </Badge>

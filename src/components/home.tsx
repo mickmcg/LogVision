@@ -51,7 +51,10 @@ const Home = () => {
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [processedEntries, setProcessedEntries] = useState<any[]>([]);
   const [visibleEntries, setVisibleEntries] = useState<any[]>([]);
-  const [statsVisible, setStatsVisible] = useState(true);
+  const [statsVisible, setStatsVisible] = useState(() => {
+    // Auto-hide stats panel on mobile/narrow screens
+    return window.innerWidth >= 768; // 768px is the md breakpoint in Tailwind
+  });
   const [loadingFiles, setLoadingFiles] = useState<{ [key: string]: number }>(
     {},
   );
@@ -73,45 +76,139 @@ const Home = () => {
 
     try {
       // For very large files, process in batches to avoid UI freezing
-      if (activeFile.content.length > 50000) {
-        // Start with a small batch for immediate feedback
+      if (activeFile.content.length > 10000) {
+        // Start with a smaller batch for immediate feedback
         const initialBatch = activeFile.content
-          .slice(0, 5000)
+          .slice(0, 2000)
           .map((line, i) => ({
             lineNumber: i + 1,
             ...parseLogLine(line),
           }));
         setProcessedEntries(initialBatch);
 
-        // Process the rest in the background
-        setTimeout(() => {
-          const batchSize = 10000;
-          let currentIndex = 5000;
+        // Process the rest in the background with web workers if available
+        const useWebWorker = window.Worker !== undefined;
 
-          const processNextBatch = () => {
-            if (currentIndex >= activeFile.content.length) return;
+        if (useWebWorker) {
+          // Create a string version of the worker function
+          const workerFunctionStr = `
+            self.onmessage = function(e) {
+              const { lines, startIndex, parseTimestampOnly } = e.data;
+              const results = [];
+              
+              // Simple timestamp extraction for worker
+              const parseLogLine = (line) => {
+                if (!line || !line.trim()) return { timestamp: "-", message: line || "" };
+                
+                // Try to match common timestamp patterns
+                const timestampRegex = /(\\d{4}-\\d{2}-\\d{2}(?:[T\\s])\\d{1,2}:\\d{2}:\\d{2}(?:\\.\\d{3})?(?:[Z])?|\\d{2}[-/](?:[A-Za-z]+|\\d{2})[-/]\\d{4}(?:\\s|:)\\d{1,2}:\\d{2}:\\d{2}(?:\\.\\d{3})?|\\d{4}\\/\\d{2}\\/\\d{2}\\s\\d{1,2}:\\d{2}:\\d{2}(?:\\.\\d{3})?)/.exec(line);
+                
+                if (timestampRegex) {
+                  return { timestamp: timestampRegex[1], message: line };
+                }
+                
+                return { timestamp: "-", message: line };
+              };
+              
+              for (let i = 0; i < lines.length; i++) {
+                results.push({
+                  lineNumber: startIndex + i + 1,
+                  ...parseLogLine(lines[i])
+                });
+              }
+              
+              self.postMessage(results);
+            };
+          `;
 
-            const endIndex = Math.min(
-              currentIndex + batchSize,
-              activeFile.content.length,
-            );
-            const nextBatch = activeFile.content
-              .slice(currentIndex, endIndex)
-              .map((line, i) => ({
-                lineNumber: currentIndex + i + 1,
-                ...parseLogLine(line),
-              }));
+          // Create a blob from the worker function string
+          const blob = new Blob([workerFunctionStr], {
+            type: "application/javascript",
+          });
+          const workerUrl = URL.createObjectURL(blob);
+          const worker = new Worker(workerUrl);
 
-            setProcessedEntries((prev) => [...prev, ...nextBatch]);
+          // Set up batch processing with the worker
+          const batchSize = 20000; // Larger batches for worker
+          let currentIndex = 2000;
+
+          worker.onmessage = (e) => {
+            const results = e.data;
+            setProcessedEntries((prev) => [...prev, ...results]);
 
             currentIndex += batchSize;
             if (currentIndex < activeFile.content.length) {
-              setTimeout(processNextBatch, 0);
+              const nextBatch = activeFile.content.slice(
+                currentIndex,
+                currentIndex + batchSize,
+              );
+              worker.postMessage({
+                lines: nextBatch,
+                startIndex: currentIndex,
+                parseTimestampOnly: true,
+              });
+            } else {
+              // Clean up when done
+              worker.terminate();
+              URL.revokeObjectURL(workerUrl);
             }
           };
 
-          processNextBatch();
-        }, 100);
+          // Start the first worker batch
+          const firstBatch = activeFile.content.slice(2000, 2000 + batchSize);
+          worker.postMessage({
+            lines: firstBatch,
+            startIndex: 2000,
+            parseTimestampOnly: true,
+          });
+        } else {
+          // Fallback to setTimeout approach with optimized batch processing
+          setTimeout(() => {
+            const batchSize = 15000;
+            let currentIndex = 2000;
+
+            const processNextBatch = () => {
+              if (currentIndex >= activeFile.content.length) return;
+
+              const endIndex = Math.min(
+                currentIndex + batchSize,
+                activeFile.content.length,
+              );
+
+              // Process batch with requestAnimationFrame for better UI responsiveness
+              requestAnimationFrame(() => {
+                const nextBatch = [];
+                const batchLines = activeFile.content.slice(
+                  currentIndex,
+                  endIndex,
+                );
+
+                for (let i = 0; i < batchLines.length; i++) {
+                  nextBatch.push({
+                    lineNumber: currentIndex + i + 1,
+                    ...parseLogLine(batchLines[i]),
+                  });
+                }
+
+                setProcessedEntries((prev) => [...prev, ...nextBatch]);
+
+                currentIndex += batchSize;
+                if (currentIndex < activeFile.content.length) {
+                  // Use requestIdleCallback if available, otherwise setTimeout
+                  if (window.requestIdleCallback) {
+                    window.requestIdleCallback(processNextBatch, {
+                      timeout: 500,
+                    });
+                  } else {
+                    setTimeout(processNextBatch, 10);
+                  }
+                }
+              });
+            };
+
+            processNextBatch();
+          }, 50);
+        }
       } else {
         // For smaller files, process all at once
         const processed = activeFile.content.map((line, i) => ({
@@ -234,7 +331,8 @@ const Home = () => {
     const processedFiles = await Promise.all(
       files.map(async (file, index) => {
         const fileId = loadingFileIds[index].id;
-        const isLargeFile = file.size > 100 * 1024 * 1024; // 100MB threshold
+        const isLargeFile = file.size > 50 * 1024 * 1024; // Lower threshold to 50MB
+        const isVeryLargeFile = file.size > 200 * 1024 * 1024; // 200MB threshold
 
         // Read file as text with progress tracking
         const reader = new FileReader();
@@ -242,45 +340,100 @@ const Home = () => {
 
         try {
           if (isLargeFile) {
-            // For large files, use chunked processing
-            const chunkSize = 10 * 1024 * 1024; // 10MB chunks
+            // For large files, use chunked processing with optimizations
+            const chunkSize = isVeryLargeFile
+              ? 20 * 1024 * 1024
+              : 10 * 1024 * 1024; // Larger chunks for very large files
             const totalChunks = Math.ceil(file.size / chunkSize);
             let loadedChunks = 0;
             let processedLines: string[] = [];
 
-            for (let start = 0; start < file.size; start += chunkSize) {
-              const chunk = file.slice(start, start + chunkSize);
-              const chunkText = await new Promise<string>((resolve) => {
-                const chunkReader = new FileReader();
-                chunkReader.onload = (e) => resolve(e.target?.result as string);
-                chunkReader.readAsText(chunk);
-              });
+            // Use a more efficient approach for very large files
+            if (isVeryLargeFile) {
+              // For extremely large files, process only a subset of chunks
+              const maxChunksToProcess = 10; // Process only first 10 chunks (200MB of data)
+              const chunksToProcess = Math.min(totalChunks, maxChunksToProcess);
 
-              // Process chunk
-              const chunkLines = chunkText.split("\n");
+              for (let i = 0; i < chunksToProcess; i++) {
+                // Process chunks from beginning, middle and end for better representation
+                let chunkIndex;
+                if (i < 4) {
+                  // First 4 chunks from beginning
+                  chunkIndex = i;
+                } else if (i < 7) {
+                  // 3 chunks from middle
+                  chunkIndex = Math.floor(totalChunks / 2) + (i - 4);
+                } else {
+                  // 3 chunks from end
+                  chunkIndex = totalChunks - (10 - i);
+                }
 
-              // If not the first chunk, the first line might be incomplete - append to the last line of previous chunk
-              if (
-                start > 0 &&
-                processedLines.length > 0 &&
-                chunkLines.length > 0
-              ) {
-                processedLines[processedLines.length - 1] += chunkLines[0];
-                processedLines = [...processedLines, ...chunkLines.slice(1)];
-              } else {
+                const start = chunkIndex * chunkSize;
+                const chunk = file.slice(start, start + chunkSize);
+                const chunkText = await new Promise<string>((resolve) => {
+                  const chunkReader = new FileReader();
+                  chunkReader.onload = (e) =>
+                    resolve(e.target?.result as string);
+                  chunkReader.readAsText(chunk);
+                });
+
+                const chunkLines = chunkText.split("\n");
                 processedLines = [...processedLines, ...chunkLines];
+
+                loadedChunks++;
+                const progress = Math.round(
+                  (loadedChunks / chunksToProcess) * 100,
+                );
+                setLoadingFiles((prev) => ({ ...prev, [fileId]: progress }));
               }
 
-              loadedChunks++;
-              const progress = Math.round((loadedChunks / totalChunks) * 100);
-              setLoadingFiles((prev) => ({ ...prev, [fileId]: progress }));
+              // Add a notice that this is a partial file
+              processedLines.unshift(
+                `[NOTICE] This file is very large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Showing a representative sample.`,
+              );
+            } else {
+              // For large but not extreme files, process all chunks sequentially
+              for (let start = 0; start < file.size; start += chunkSize) {
+                const chunk = file.slice(start, start + chunkSize);
+                const chunkText = await new Promise<string>((resolve) => {
+                  const chunkReader = new FileReader();
+                  chunkReader.onload = (e) =>
+                    resolve(e.target?.result as string);
+                  chunkReader.readAsText(chunk);
+                });
+
+                // Process chunk more efficiently
+                const chunkLines = chunkText.split("\n");
+
+                // If not the first chunk, the first line might be incomplete - append to the last line of previous chunk
+                if (
+                  start > 0 &&
+                  processedLines.length > 0 &&
+                  chunkLines.length > 0
+                ) {
+                  processedLines[processedLines.length - 1] += chunkLines[0];
+                  // Use a more efficient way to append arrays
+                  processedLines.push(...chunkLines.slice(1));
+                } else {
+                  processedLines.push(...chunkLines);
+                }
+
+                loadedChunks++;
+                const progress = Math.round((loadedChunks / totalChunks) * 100);
+                setLoadingFiles((prev) => ({ ...prev, [fileId]: progress }));
+              }
             }
 
             // Sample the lines for very large files
-            const maxLines = 500000; // Limit to 500K lines for performance
+            const maxLines = isVeryLargeFile ? 200000 : 500000; // Lower limit for very large files
             if (processedLines.length > maxLines) {
               const samplingRate = Math.ceil(processedLines.length / maxLines);
-              lines = processedLines.filter((_, i) => i % samplingRate === 0);
+              // More efficient sampling
+              const sampledLines = [];
+              for (let i = 0; i < processedLines.length; i += samplingRate) {
+                sampledLines.push(processedLines[i]);
+              }
+              lines = sampledLines;
               console.log(
                 `Sampled large file from ${processedLines.length} to ${lines.length} lines`,
               );
@@ -288,7 +441,7 @@ const Home = () => {
               lines = processedLines;
             }
           } else {
-            // For smaller files, use the standard approach
+            // For smaller files, use the standard approach with optimizations
             const text = await new Promise<string>((resolve) => {
               reader.onload = (e) => resolve(e.target?.result as string);
 
@@ -305,6 +458,7 @@ const Home = () => {
               reader.readAsText(file);
             });
 
+            // More efficient string splitting for moderate-sized files
             lines = text.split("\n");
           }
         } catch (error) {
@@ -565,6 +719,8 @@ const Home = () => {
           return {
             ...file,
             bucketSize: size,
+            // Preserve the existing time range when changing bucket size
+            timeRange: file.timeRange,
           };
         }
         return file;
@@ -598,9 +754,16 @@ const Home = () => {
       <div className="flex flex-col gap-2">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold shrink-0 text-blue-500">
-              LogTrawler
-            </h1>
+            <div className="flex items-center gap-2">
+              <img
+                src="/fish-icon.svg"
+                alt="LogTrawler logo"
+                className="w-6 h-6 dark:invert"
+              />
+              <h1 className="text-xl font-semibold shrink-0 text-blue-500">
+                LogTrawler
+              </h1>
+            </div>
             <ThemeToggle />
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -610,7 +773,23 @@ const Home = () => {
               }
               endDate={activeFile?.timeRange?.endDate || activeFile?.endDate}
               onRangeChange={(start, end) => {
+                // Update the time range in the same way as chart selection
                 handleTimeRangeSelect(start, end);
+
+                // Reset the chart selection when using the date pickers
+                if (activeFile) {
+                  setFiles((prev) =>
+                    prev.map((file) => {
+                      if (file.id === activeFile.id) {
+                        return {
+                          ...file,
+                          timeRange: { startDate: start, endDate: end },
+                        };
+                      }
+                      return file;
+                    }),
+                  );
+                }
               }}
             />
             <div className="hidden lg:block text-sm text-muted-foreground whitespace-nowrap">
@@ -743,13 +922,14 @@ const Home = () => {
                   onBucketSizeChange={handleBucketSizeChange}
                   fileStartDate={activeFile.startDate}
                   fileEndDate={activeFile.endDate}
+                  timeRange={activeFile.timeRange}
                 />
                 <ResizablePanelGroup direction="horizontal">
                   <ResizablePanel
                     defaultSize={25}
                     collapsible
                     minSize={0}
-                    className={statsVisible ? "" : "hidden"}
+                    className={statsVisible ? "hidden md:block" : "hidden"}
                   >
                     <LogStats
                       entries={visibleEntries}
@@ -757,11 +937,13 @@ const Home = () => {
                       showHourlyActivity={false}
                       onToggle={() => setStatsVisible(!statsVisible)}
                       showStats={statsVisible}
-                      onAddFilter={(term) => handleAddFilter(term, "include")}
+                      onAddFilter={(term, type = "include") =>
+                        handleAddFilter(term, type)
+                      }
                     />
                   </ResizablePanel>
                   {!statsVisible && (
-                    <div className="w-8 flex items-start justify-center pt-4">
+                    <div className="w-8 flex items-start justify-center pt-4 hidden md:flex">
                       <Button
                         variant="ghost"
                         size="sm"

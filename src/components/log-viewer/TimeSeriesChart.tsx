@@ -61,11 +61,12 @@ function TimeSeriesChart(props) {
   const chartRef = React.useRef(null);
   const chartContainerRef = React.useRef(null);
 
-  // Process log entries into time series data
+  // Process log entries into time series data with optimizations
   React.useEffect(() => {
     // Add a small delay to ensure DOM is ready
     setIsLoading(true);
-    const timer = setTimeout(() => {
+    // Use requestAnimationFrame for better performance
+    const rafId = requestAnimationFrame(() => {
       try {
         // Use filtered entries if available and filters are applied, otherwise use all entries
         const dataToProcess =
@@ -77,13 +78,27 @@ function TimeSeriesChart(props) {
           selectedRange && selectedRange.startDate && selectedRange.endDate;
 
         // Process all entries to ensure we capture the full time range
-        // Use sampling for very large files
-        const processEntries =
-          dataToProcess.length > 100000
-            ? dataToProcess.filter(
-                (_, i) => i % Math.ceil(dataToProcess.length / 50000) === 0,
-              )
-            : dataToProcess;
+        // Use more aggressive sampling for very large files
+        let processEntries;
+        if (dataToProcess.length > 500000) {
+          // For extremely large datasets, use very aggressive sampling
+          const sampleSize = 25000;
+          const step = Math.ceil(dataToProcess.length / sampleSize);
+          processEntries = [];
+          for (let i = 0; i < dataToProcess.length; i += step) {
+            processEntries.push(dataToProcess[i]);
+          }
+        } else if (dataToProcess.length > 100000) {
+          // For large datasets, use moderate sampling
+          const sampleSize = 50000;
+          const step = Math.ceil(dataToProcess.length / sampleSize);
+          processEntries = [];
+          for (let i = 0; i < dataToProcess.length; i += step) {
+            processEntries.push(dataToProcess[i]);
+          }
+        } else {
+          processEntries = dataToProcess;
+        }
 
         // Parse all timestamps and extract log levels
         const newTimestampData = [];
@@ -312,9 +327,9 @@ function TimeSeriesChart(props) {
       } finally {
         setIsLoading(false);
       }
-    }, 100); // 100ms delay
+    });
 
-    return () => clearTimeout(timer);
+    return () => cancelAnimationFrame(rafId);
   }, [
     entries,
     filteredEntries,
@@ -326,7 +341,40 @@ function TimeSeriesChart(props) {
 
   const handleBucketChange = (value) => {
     onBucketSizeChange(value);
-    setSelectedRange(null);
+    // Don't reset the selected range when changing bucket size
+  };
+
+  // Calculate optimal bucket size for a given time range
+  const calculateOptimalBucketSize = (startDate, endDate) => {
+    if (!startDate || !endDate) return bucketSize;
+
+    const diffMs = endDate.getTime() - startDate.getTime();
+    const diffMinutes = diffMs / (1000 * 60);
+    const targetBuckets = 120; // Aim for more granular bars
+
+    // Special case for 1-hour range (use 30s buckets)
+    if (diffMinutes <= 60) {
+      return "30s";
+    } else {
+      const idealBucketSizeMinutes = Math.max(
+        1,
+        Math.ceil(diffMinutes / targetBuckets),
+      );
+
+      // Round to standard bucket sizes
+      if (idealBucketSizeMinutes <= 0.08) return "5s";
+      else if (idealBucketSizeMinutes <= 0.17) return "10s";
+      else if (idealBucketSizeMinutes <= 0.5) return "30s";
+      else if (idealBucketSizeMinutes <= 1) return "1m";
+      else if (idealBucketSizeMinutes <= 5) return "5m";
+      else if (idealBucketSizeMinutes <= 10) return "10m";
+      else if (idealBucketSizeMinutes <= 30) return "30m";
+      else if (idealBucketSizeMinutes <= 60) return "60m";
+      else if (idealBucketSizeMinutes <= 360) return "360m";
+      else if (idealBucketSizeMinutes <= 720) return "720m";
+      else if (idealBucketSizeMinutes <= 1440) return "1440m";
+      else return "10080m";
+    }
   };
 
   const getMouseXPosition = (e) => {
@@ -406,8 +454,19 @@ function TimeSeriesChart(props) {
           );
           const endDate = parse(endLabel, "yyyy-MM-dd HH:mm:ss", new Date());
 
+          // Calculate optimal bucket size for the selected range
+          const optimalBucketSize = calculateOptimalBucketSize(
+            startDate,
+            endDate,
+          );
+
           setSelectedRange({ startDate, endDate });
           onTimeRangeSelect(startDate, endDate);
+
+          // Update bucket size if it's different from current
+          if (optimalBucketSize !== bucketSize) {
+            onBucketSizeChange(optimalBucketSize);
+          }
         }
       }
     }
@@ -417,7 +476,34 @@ function TimeSeriesChart(props) {
   const clearSelection = () => {
     setSelectedRange(null);
     onTimeRangeSelect(undefined, undefined);
+
+    // Recalculate optimal bucket size for the full range
+    if (fileStartDate && fileEndDate) {
+      const optimalBucketSize = calculateOptimalBucketSize(
+        fileStartDate,
+        fileEndDate,
+      );
+      if (optimalBucketSize !== bucketSize) {
+        onBucketSizeChange(optimalBucketSize);
+      }
+    }
   };
+
+  // Update local selection state when props change
+  React.useEffect(() => {
+    if (fileStartDate && fileEndDate) {
+      // If there's a time range filter applied from outside
+      if (props.timeRange?.startDate && props.timeRange?.endDate) {
+        setSelectedRange({
+          startDate: props.timeRange.startDate,
+          endDate: props.timeRange.endDate,
+        });
+      } else {
+        // If time range filter was cleared
+        setSelectedRange(null);
+      }
+    }
+  }, [props.timeRange, fileStartDate, fileEndDate]);
 
   // Memoize chart options to prevent unnecessary re-renders
   const options = useMemo(
@@ -586,7 +672,12 @@ function TimeSeriesChart(props) {
         >
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              <div
+                className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+                role="status"
+              >
+                <span className="sr-only">Loading...</span>
+              </div>
             </div>
           )}
           {chartData.labels.length > 0 && (

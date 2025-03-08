@@ -121,14 +121,14 @@ const LogDisplay = ({
     return () => document.removeEventListener("click", handleClickOutside);
   }, [contextMenu]);
 
-  // Handle virtual scrolling
+  // Handle virtual scrolling with optimizations
   useEffect(() => {
     const handleScroll = () => {
       if (!scrollContainerRef.current || entries.length === 0) return;
 
       const { scrollTop, clientHeight, scrollHeight } =
         scrollContainerRef.current;
-      const buffer = 20; // Extra buffer of items to render
+      const buffer = entries.length > 50000 ? 10 : 20; // Smaller buffer for very large datasets
 
       // Calculate visible range based on scroll position
       const itemHeight = 40; // Approximate height of each log entry
@@ -139,85 +139,156 @@ const LogDisplay = ({
       const visibleItems = Math.ceil(clientHeight / itemHeight) + buffer * 2;
       const endIndex = Math.min(entries.length, startIndex + visibleItems);
 
-      setVisibleRange({ start: startIndex, end: endIndex });
+      // Only update state if the range has changed significantly (at least 5 items)
+      if (
+        Math.abs(startIndex - visibleRange.start) > 5 ||
+        Math.abs(endIndex - visibleRange.end) > 5
+      ) {
+        setVisibleRange({ start: startIndex, end: endIndex });
+      }
+    };
+
+    // Use throttled scroll handler for better performance
+    let scrollTimeout: number | null = null;
+    const throttledScrollHandler = () => {
+      if (scrollTimeout === null) {
+        scrollTimeout = window.setTimeout(() => {
+          handleScroll();
+          scrollTimeout = null;
+        }, 16); // ~60fps
+      }
     };
 
     const scrollContainer = scrollContainerRef.current;
     if (scrollContainer) {
-      scrollContainer.addEventListener("scroll", handleScroll);
+      scrollContainer.addEventListener("scroll", throttledScrollHandler);
       handleScroll(); // Initial calculation
     }
 
     return () => {
       if (scrollContainer) {
-        scrollContainer.removeEventListener("scroll", handleScroll);
+        scrollContainer.removeEventListener("scroll", throttledScrollHandler);
+      }
+      if (scrollTimeout !== null) {
+        window.clearTimeout(scrollTimeout);
       }
     };
-  }, [entries.length]);
+  }, [entries.length, visibleRange.start, visibleRange.end]);
 
   const getHighlights = (message: string) => {
+    // Skip processing if no filters
+    if (filters.length === 0) return [];
+
     const matches = [];
+    const messageLower = message.toLowerCase();
 
     for (let i = 0; i < filters.length; i++) {
       const filter = filters[i];
       const term = filter.term.toLowerCase();
-      const messageLower = message.toLowerCase();
+
+      // Skip empty terms
+      if (!term) continue;
+
+      // Use a more efficient approach for finding all occurrences
       let index = messageLower.indexOf(term);
+      if (index === -1) continue; // Skip if no match at all
+
+      const colorIndex = getFilterIndex(filters, filter.id);
+      const colors = getFilterColor(filter.type, colorIndex);
 
       while (index !== -1) {
-        const colorIndex = getFilterIndex(filters, filter.id);
-        const colors = getFilterColor(filter.type, colorIndex);
         matches.push({
           start: index,
           end: index + term.length,
           term: message.slice(index, index + term.length),
           colors,
         });
-        index = messageLower.indexOf(term, index + 1);
+        index = messageLower.indexOf(term, index + term.length);
       }
     }
-    return matches.sort((a, b) => a.start - b.start);
+
+    // Only sort if we have multiple matches
+    return matches.length > 1
+      ? matches.sort((a, b) => a.start - b.start)
+      : matches;
   };
 
-  const highlightText = (text: string) => {
-    const highlights = getHighlights(text);
-    if (highlights.length === 0) {
-      if (!searchTerm) return text;
+  // Memoize the highlight function for better performance
+  const highlightText = React.useMemo(() => {
+    // Return a function that does the actual highlighting
+    return (text: string) => {
+      // Quick return for empty text
+      if (!text) return text;
 
-      const parts = text.split(new RegExp(`(${searchTerm})`, "gi"));
-      return parts.map((part, i) =>
-        part.toLowerCase() === searchTerm.toLowerCase() ? (
-          <span key={i} className="bg-yellow-100 text-yellow-700 font-medium">
-            {part}
-          </span>
-        ) : (
-          part
-        ),
-      );
-    }
+      // Skip processing if no filters and no search term
+      if (filters.length === 0 && !searchTerm) return text;
 
-    let lastIndex = 0;
-    const result = [];
+      const highlights = getHighlights(text);
+      if (highlights.length === 0) {
+        if (!searchTerm) return text;
 
-    for (let i = 0; i < highlights.length; i++) {
-      const highlight = highlights[i];
-      if (highlight.start > lastIndex) {
-        result.push(text.slice(lastIndex, highlight.start));
+        // Optimize search term highlighting
+        if (searchTerm.length < 2) return text; // Skip very short search terms
+
+        try {
+          const searchRegex = new RegExp(
+            `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+            "gi",
+          );
+          const parts = text.split(searchRegex);
+          return parts.map((part, i) =>
+            part.toLowerCase() === searchTerm.toLowerCase() ? (
+              <span
+                key={i}
+                className="bg-yellow-100 text-yellow-700 font-medium"
+              >
+                {part}
+              </span>
+            ) : (
+              part
+            ),
+          );
+        } catch (e) {
+          // Fallback if regex fails
+          return text;
+        }
       }
-      result.push(
-        <span key={i} className={`${highlight.colors.highlight} font-medium`}>
-          {highlight.term}
-        </span>,
-      );
-      lastIndex = highlight.end;
-    }
 
-    if (lastIndex < text.length) {
-      result.push(text.slice(lastIndex));
-    }
+      // Optimize highlight rendering for large text
+      let lastIndex = 0;
+      const result = [];
+      const maxHighlights = 50; // Limit number of highlights for very long messages
+      const highlightsToProcess =
+        highlights.length > maxHighlights
+          ? highlights.slice(0, maxHighlights)
+          : highlights;
 
-    return result;
-  };
+      for (let i = 0; i < highlightsToProcess.length; i++) {
+        const highlight = highlightsToProcess[i];
+        if (highlight.start > lastIndex) {
+          result.push(text.slice(lastIndex, highlight.start));
+        }
+        result.push(
+          <span key={i} className={`${highlight.colors.highlight} font-medium`}>
+            {highlight.term}
+          </span>,
+        );
+        lastIndex = highlight.end;
+      }
+
+      if (lastIndex < text.length) {
+        // For very long text, truncate the end if needed
+        const remainingText = text.slice(lastIndex);
+        result.push(
+          remainingText.length > 10000
+            ? remainingText.substring(0, 10000) + "..."
+            : remainingText,
+        );
+      }
+
+      return result;
+    };
+  }, [filters, searchTerm]);
 
   const handleContextMenu = (e: React.MouseEvent, entry: LogEntry) => {
     e.preventDefault();
