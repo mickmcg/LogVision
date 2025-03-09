@@ -572,7 +572,7 @@ function TimeSeriesChart(props) {
           display: false,
         },
         tooltip: {
-          mode: "index",
+          mode: "index" as const,
           intersect: false,
           callbacks: {
             title: (context) => {

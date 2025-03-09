@@ -1,4 +1,7 @@
-import { open } from "@tauri-apps/plugin-shell";
+// Simple function to open URLs without Tauri dependency
+const openUrl = (url: string) => {
+  window.open(url, "_blank");
+};
 import React, { useRef, useEffect, useState, forwardRef, memo } from "react";
 import { getFilterColor, getFilterIndex, parseTimestamp } from "@/lib/utils";
 import {
@@ -606,15 +609,8 @@ const LogDisplay = ({
               className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground gap-2"
               onClick={() => {
                 const url = `https://www.google.com/search?q=${encodeURIComponent(contextMenu.selection)}`;
-
-                if (window.__TAURI__) {
-                  // Use Tauri API to open the URL in the system browser
-                  open(url);
-                } else {
-                  // Fallback for web browsers
-                  window.open(url, "_blank");
-                }
-
+                // Use the simple URL opener function
+                openUrl(url);
                 setContextMenu(null);
               }}
             >
