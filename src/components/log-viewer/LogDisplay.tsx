@@ -1,3 +1,4 @@
+import { open } from "@tauri-apps/plugin-shell";
 import React, { useRef, useEffect, useState, forwardRef, memo } from "react";
 import { getFilterColor, getFilterIndex, parseTimestamp } from "@/lib/utils";
 import {
@@ -604,10 +605,16 @@ const LogDisplay = ({
             <button
               className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground gap-2"
               onClick={() => {
-                window.open(
-                  `https://www.google.com/search?q=${encodeURIComponent(contextMenu.selection)}`,
-                  "_blank",
-                );
+                const url = `https://www.google.com/search?q=${encodeURIComponent(contextMenu.selection)}`;
+
+                if (window.__TAURI__) {
+                  // Use Tauri API to open the URL in the system browser
+                  open(url);
+                } else {
+                  // Fallback for web browsers
+                  window.open(url, "_blank");
+                }
+
                 setContextMenu(null);
               }}
             >
