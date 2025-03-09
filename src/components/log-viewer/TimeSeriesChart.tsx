@@ -608,7 +608,6 @@ function TimeSeriesChart(props) {
           mode: "index" as const,
           intersect: false,
           animation: false,
-          position: "nearest",
           backgroundColor: "rgba(0, 0, 0, 0.8)",
           titleFont: { size: 12 },
           bodyFont: { size: 11 },
