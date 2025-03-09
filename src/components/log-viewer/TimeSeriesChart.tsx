@@ -63,8 +63,7 @@ function TimeSeriesChart(props) {
 
   // Process log entries into time series data with optimizations
   React.useEffect(() => {
-    // Add a small delay to ensure DOM is ready
-    setIsLoading(true);
+    // Skip loading state completely to avoid flickering
     // Use requestAnimationFrame for better performance
     const rafId = requestAnimationFrame(() => {
       try {
@@ -405,6 +404,7 @@ function TimeSeriesChart(props) {
       } catch (error) {
         console.error("Error processing chart data:", error);
       } finally {
+        // Don't show loading indicator at all
         setIsLoading(false);
       }
     });
