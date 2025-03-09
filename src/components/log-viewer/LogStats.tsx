@@ -112,6 +112,30 @@ const LogStats = (props: LogStatsProps) => {
       border: "border-rose-200",
       bar: "bg-rose-400",
     },
+    CRITICAL: {
+      bg: "bg-red-200",
+      text: "text-red-900",
+      border: "border-red-300",
+      bar: "bg-red-500",
+    },
+    FATAL: {
+      bg: "bg-red-300",
+      text: "text-red-900",
+      border: "border-red-400",
+      bar: "bg-red-600",
+    },
+    ALERT: {
+      bg: "bg-red-400",
+      text: "text-red-950",
+      border: "border-red-500",
+      bar: "bg-red-700",
+    },
+    EMERG: {
+      bg: "bg-purple-200",
+      text: "text-purple-900",
+      border: "border-purple-300",
+      bar: "bg-purple-500",
+    },
     WARN: {
       bg: "bg-yellow-100",
       text: "text-yellow-800",
@@ -123,6 +147,18 @@ const LogStats = (props: LogStatsProps) => {
       text: "text-green-800",
       border: "border-green-200",
       bar: "bg-green-400",
+    },
+    TRACE: {
+      bg: "bg-emerald-100",
+      text: "text-emerald-800",
+      border: "border-emerald-200",
+      bar: "bg-emerald-400",
+    },
+    NOTICE: {
+      bg: "bg-indigo-100",
+      text: "text-indigo-800",
+      border: "border-indigo-200",
+      bar: "bg-indigo-400",
     },
     OTHER: {
       bg: "bg-gray-100",

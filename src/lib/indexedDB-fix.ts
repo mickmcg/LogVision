@@ -18,6 +18,7 @@ interface LogFileData {
   bucketSize?: string;
   timeRange?: { startDate?: string; endDate?: string };
   notes?: string;
+  tags?: string[];
 }
 
 const DB_NAME = "logTrawlerDB";

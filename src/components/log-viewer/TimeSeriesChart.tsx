@@ -113,22 +113,38 @@ function TimeSeriesChart(props) {
           // Extract log level
           const levelMatch =
             parsed.message.match(
-              /\[(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\]/i,
+              /\[(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\]/i,
             ) ||
-            parsed.message.match(/\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\s/i);
+            parsed.message.match(
+              /\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+            );
 
           const level = levelMatch
             ? levelMatch[1].toUpperCase() === "WARNING"
               ? "WARN"
-              : levelMatch[1].toUpperCase()
-            : parsed.message.match(/^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\s/i)
+              : levelMatch[1].toUpperCase() === "EMERGENCY"
+                ? "EMERG"
+                : levelMatch[1].toUpperCase()
+            : parsed.message.match(
+                  /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+                )
               ? parsed.message
-                  .match(/^(INFO|ERROR|WARN|WARNING|DEBUG)\s/i)[1]
+                  .match(
+                    /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+                  )[1]
                   .toUpperCase() === "WARNING"
                 ? "WARN"
                 : parsed.message
-                    .match(/^(INFO|ERROR|WARN|WARNING|DEBUG)\s/i)[1]
-                    .toUpperCase()
+                      .match(
+                        /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+                      )[1]
+                      .toUpperCase() === "EMERGENCY"
+                  ? "EMERG"
+                  : parsed.message
+                      .match(
+                        /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+                      )[1]
+                      .toUpperCase()
               : "OTHER";
 
           newTimestampData.push({ date, level });
@@ -327,6 +343,22 @@ function TimeSeriesChart(props) {
             backgroundColor: "rgba(220, 38, 38, 0.6)",
             borderColor: "rgb(220, 38, 38)",
           },
+          CRITICAL: {
+            backgroundColor: "rgba(185, 28, 28, 0.6)",
+            borderColor: "rgb(185, 28, 28)",
+          },
+          FATAL: {
+            backgroundColor: "rgba(153, 27, 27, 0.6)",
+            borderColor: "rgb(153, 27, 27)",
+          },
+          ALERT: {
+            backgroundColor: "rgba(127, 29, 29, 0.6)",
+            borderColor: "rgb(127, 29, 29)",
+          },
+          EMERG: {
+            backgroundColor: "rgba(120, 27, 98, 0.6)",
+            borderColor: "rgb(120, 27, 98)",
+          },
           WARN: {
             backgroundColor: "rgba(245, 158, 11, 0.6)",
             borderColor: "rgb(245, 158, 11)",
@@ -334,6 +366,14 @@ function TimeSeriesChart(props) {
           DEBUG: {
             backgroundColor: "rgba(16, 185, 129, 0.6)",
             borderColor: "rgb(16, 185, 129)",
+          },
+          TRACE: {
+            backgroundColor: "rgba(5, 150, 105, 0.6)",
+            borderColor: "rgb(5, 150, 105)",
+          },
+          NOTICE: {
+            backgroundColor: "rgba(79, 70, 229, 0.6)",
+            borderColor: "rgb(79, 70, 229)",
           },
           OTHER: {
             backgroundColor: "rgba(156, 163, 175, 0.6)",

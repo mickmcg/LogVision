@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowUpDown, Trash2, Clock, FileText } from "lucide-react";
+import { ArrowUpDown, Trash2, Clock, FileText, StickyNote } from "lucide-react";
 import { format } from "date-fns";
 import {
   Tooltip,
@@ -29,6 +29,8 @@ export interface RecentFile {
   lines?: number;
   startDate?: string; // ISO string
   endDate?: string; // ISO string
+  tags?: string[];
+  notes?: string;
 }
 
 interface RecentFilesProps {
@@ -93,6 +95,8 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
               lines: file.content?.length,
               startDate: file.startDate,
               endDate: file.endDate,
+              tags: file.tags,
+              notes: file.notes,
             };
           });
 
@@ -337,6 +341,12 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
                           >
                             <FileText className="h-4 w-4" />
                             {file.name}
+                            {file.notes && file.notes.trim() !== "" && (
+                              <StickyNote
+                                className="h-3 w-3 text-blue-500 ml-1"
+                                title="Has notes"
+                              />
+                            )}
                             <span className="text-xs text-muted-foreground">
                               (ID: {file.id.substring(0, 8)}...)
                             </span>
@@ -346,10 +356,27 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
                           <p>
                             Click to open from IndexedDB or file selector if not
                             found.
+                            {file.notes && file.notes.trim() !== "" && (
+                              <span className="block text-xs text-blue-500 mt-1">
+                                This file has saved notes
+                              </span>
+                            )}
                           </p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
+                    {file.tags && file.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {file.tags.map((tag, index) => (
+                          <span
+                            key={index}
+                            className="inline-flex text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-sm"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2">
                     {format(new Date(file.lastOpened), "dd MMM yyyy HH:mm")}

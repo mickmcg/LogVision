@@ -16,6 +16,7 @@ import { parseLogLine, parseTimestamp } from "@/lib/utils";
 import { FilterPresets, type FilterPreset } from "./log-viewer/FilterPresets";
 import ExportButton from "./log-viewer/ExportButton";
 import NotesPanel from "./log-viewer/NotesPanel";
+import TagsPanel from "./log-viewer/TagsPanel";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -47,6 +48,7 @@ interface LogFile {
   timeRange?: { startDate?: Date; endDate?: Date };
   isLoading?: boolean;
   notes?: string;
+  tags?: string[];
 }
 
 const Home = () => {
@@ -356,6 +358,14 @@ const Home = () => {
       console.log("New ID format:", recentFile.id);
     }
 
+    // Check if the file is already loaded in the current session
+    const existingFile = files.find((f) => f.id === recentFile.id);
+    if (existingFile) {
+      console.log("File already loaded in current session, activating tab");
+      setActiveFileId(existingFile.id);
+      return;
+    }
+
     // Try to get all files first to ensure the database is properly initialized
     try {
       // Use the fixed version of IndexedDB
@@ -437,6 +447,7 @@ const Home = () => {
               }
             : undefined,
           notes: logFile.notes || "",
+          tags: logFile.tags || [],
         };
 
         // Add file to state
@@ -868,6 +879,7 @@ const Home = () => {
               startDate: startDate?.toISOString(),
               endDate: endDate?.toISOString(),
               notes: "", // Initialize with empty notes
+              tags: [], // Initialize with empty tags
             };
 
             console.log(
@@ -939,6 +951,27 @@ const Home = () => {
   };
 
   const handleRemoveFile = (fileId: string) => {
+    // Save filters before removing the file
+    const fileToRemove = files.find((f) => f.id === fileId);
+    if (
+      fileToRemove &&
+      fileToRemove.filters &&
+      fileToRemove.filters.length > 0
+    ) {
+      try {
+        import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
+          updateLogFile(fileId, {
+            filters: fileToRemove.filters,
+            filterLogic: fileToRemove.filterLogic || "OR",
+          }).catch((err) =>
+            console.error("Failed to save filters before closing tab:", err),
+          );
+        });
+      } catch (error) {
+        console.error("Error importing IndexedDB module:", error);
+      }
+    }
+
     setFiles((prev) => prev.filter((f) => f.id !== fileId));
     if (activeFileId === fileId) {
       setActiveFileId(files.find((f) => f.id !== fileId)?.id || null);
@@ -1044,9 +1077,27 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id && file.filters) {
+          const updatedFilters = file.filters.filter((f) => f.id !== id);
+
+          // Update in IndexedDB when a filter is removed
+          try {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                filters: updatedFilters,
+              }).catch((err) =>
+                console.error(
+                  "Failed to update filters in IndexedDB after removal:",
+                  err,
+                ),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
           return {
             ...file,
-            filters: file.filters.filter((f) => f.id !== id),
+            filters: updatedFilters,
           };
         }
         return file;
@@ -1060,10 +1111,28 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
-          return {
+          const updatedFile = {
             ...file,
             filters: [],
           };
+
+          // Update in IndexedDB when filters are cleared
+          try {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                filters: [],
+              }).catch((err) =>
+                console.error(
+                  "Failed to update cleared filters in IndexedDB:",
+                  err,
+                ),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
+          return updatedFile;
         }
         return file;
       }),
@@ -1171,7 +1240,14 @@ const Home = () => {
       <div className="flex flex-col gap-2">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={() => {
+                // Keep files in state but set activeFileId to null to show home screen
+                setActiveFileId(null);
+              }}
+              title="Return to home screen"
+            >
               <img
                 src="/fish-icon.svg"
                 alt="LogTrawler logo"
@@ -1259,7 +1335,7 @@ const Home = () => {
           </div>
         </div>
 
-        {files.length === 0 ? (
+        {!activeFileId ? (
           <div className="flex flex-col gap-4">
             <div
               className={`border-2 border-dashed rounded-lg p-12 text-center ${isDragging ? "border-primary bg-primary/10" : "border-muted"}`}
@@ -1501,6 +1577,49 @@ const Home = () => {
                               }}
                             />
                           )}
+
+                          {/* Tags Panel */}
+                          {activeFile && (
+                            <TagsPanel
+                              fileId={activeFile.id}
+                              initialTags={activeFile.tags || []}
+                              onSaveTags={(tags) => {
+                                // Update tags in state
+                                setFiles((prev) =>
+                                  prev.map((file) => {
+                                    if (file.id === activeFile.id) {
+                                      return {
+                                        ...file,
+                                        tags,
+                                      };
+                                    }
+                                    return file;
+                                  }),
+                                );
+
+                                // Save to IndexedDB
+                                try {
+                                  import("@/lib/indexedDB-fix").then(
+                                    ({ updateLogFile }) => {
+                                      updateLogFile(activeFile.id, {
+                                        tags,
+                                      }).catch((err) =>
+                                        console.error(
+                                          "Failed to update tags in IndexedDB:",
+                                          err,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                } catch (error) {
+                                  console.error(
+                                    "Error importing IndexedDB module:",
+                                    error,
+                                  );
+                                }
+                              }}
+                            />
+                          )}
                         </div>
                       </ScrollArea>
                     </div>
@@ -1561,19 +1680,42 @@ const Home = () => {
                           setFiles((prev) =>
                             prev.map((file) => {
                               if (file.id === activeFile.id && file.filters) {
+                                const updatedFilters = file.filters.map((f) =>
+                                  f.id === id
+                                    ? {
+                                        ...f,
+                                        type:
+                                          f.type === "include"
+                                            ? "exclude"
+                                            : "include",
+                                      }
+                                    : f,
+                                );
+
+                                // Update in IndexedDB when filter type is toggled
+                                try {
+                                  import("@/lib/indexedDB-fix").then(
+                                    ({ updateLogFile }) => {
+                                      updateLogFile(file.id, {
+                                        filters: updatedFilters,
+                                      }).catch((err) =>
+                                        console.error(
+                                          "Failed to update filter type in IndexedDB:",
+                                          err,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                } catch (error) {
+                                  console.error(
+                                    "Error importing IndexedDB module:",
+                                    error,
+                                  );
+                                }
+
                                 return {
                                   ...file,
-                                  filters: file.filters.map((f) =>
-                                    f.id === id
-                                      ? {
-                                          ...f,
-                                          type:
-                                            f.type === "include"
-                                              ? "exclude"
-                                              : "include",
-                                        }
-                                      : f,
-                                  ),
+                                  filters: updatedFilters,
                                 };
                               }
                               return file;
@@ -1602,6 +1744,27 @@ const Home = () => {
                               setFiles((prev) =>
                                 prev.map((file) => {
                                   if (file.id === activeFile.id) {
+                                    // Update in IndexedDB when loading a preset
+                                    try {
+                                      import("@/lib/indexedDB-fix").then(
+                                        ({ updateLogFile }) => {
+                                          updateLogFile(file.id, {
+                                            filters: preset.filters,
+                                          }).catch((err) =>
+                                            console.error(
+                                              "Failed to update filters from preset in IndexedDB:",
+                                              err,
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    } catch (error) {
+                                      console.error(
+                                        "Error importing IndexedDB module:",
+                                        error,
+                                      );
+                                    }
+
                                     return {
                                       ...file,
                                       filters: preset.filters,
