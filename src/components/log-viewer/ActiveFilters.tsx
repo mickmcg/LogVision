@@ -1,5 +1,5 @@
 import React, { forwardRef, memo } from "react";
-import { X } from "lucide-react";
+import { X, Code } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -13,6 +13,7 @@ interface FilterItem {
   id: string;
   type: "include" | "exclude";
   term: string;
+  isRegex?: boolean;
 }
 
 interface LogEntry {
@@ -67,6 +68,7 @@ const FilterBadge = memo<FilterBadgeProps>(
                 onClick={() => onToggleType(filter.id)}
               >
                 {filter.type === "include" ? "+" : "-"}
+                {filter.isRegex && <Code className="h-3 w-3 inline mr-1" />}
                 {filter.term}
                 <span className="ml-2">
                   ({matchCount.toLocaleString()} - {percentage}%)
@@ -84,6 +86,7 @@ const FilterBadge = memo<FilterBadgeProps>(
           <TooltipContent>
             <p>
               {filter.type === "include" ? "Include" : "Exclude"}: {filter.term}
+              {filter.isRegex && <span className="ml-1">(Regex)</span>}
               <br />
               Matches {matchCount.toLocaleString()} lines ({percentage}%)
               <br />
@@ -118,13 +121,21 @@ const ActiveFilters = ({
 
       // For log level terms, use more specific matching
       if (
+        !filter.isRegex &&
         [
+          "TRACE",
+          "DEBUG",
           "INFO",
-          "ERROR",
+          "NOTICE",
           "WARN",
           "WARNING",
-          "DEBUG",
+          "ERROR",
           "SEVERE",
+          "CRITICAL",
+          "FATAL",
+          "ALERT",
+          "EMERG",
+          "EMERGENCY",
           "OTHER",
         ].includes(filter.term.toUpperCase())
       ) {
@@ -137,6 +148,17 @@ const ActiveFilters = ({
           upperMessage.includes(` ${upperTerm} `) ||
           upperMessage.startsWith(upperTerm + " ")
         );
+      }
+
+      // For regex filters
+      if (filter.isRegex) {
+        try {
+          const regex = new RegExp(filter.term, "i");
+          return regex.test(message);
+        } catch (error) {
+          console.error("Invalid regex pattern:", error);
+          return false;
+        }
       }
 
       // For other terms, use simple includes

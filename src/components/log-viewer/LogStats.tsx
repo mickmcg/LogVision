@@ -55,13 +55,22 @@ const LogStats = (props: LogStatsProps) => {
     allEntries.forEach((entry) => {
       // Extract log level
       const levelMatch =
-        entry.message.match(/\[(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\]/i) ||
-        entry.message.match(/\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE)\s/i);
+        entry.message.match(
+          /\[(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\]/i,
+        ) ||
+        entry.message.match(
+          /\s(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+        ) ||
+        entry.message.match(
+          /^(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+        );
 
       const level = levelMatch
         ? levelMatch[1].toUpperCase() === "WARNING"
           ? "WARN"
-          : levelMatch[1].toUpperCase()
+          : levelMatch[1].toUpperCase() === "EMERGENCY"
+            ? "EMERG"
+            : levelMatch[1].toUpperCase()
         : "OTHER";
       levels.set(level, (levels.get(level) || 0) + 1);
       if (level === "ERROR") errorCount++;
@@ -221,12 +230,19 @@ const LogStats = (props: LogStatsProps) => {
                           if (level === "OTHER") {
                             // For OTHER, add exclude filters for all standard log levels
                             const standardLevels = [
+                              "TRACE",
+                              "DEBUG",
                               "INFO",
-                              "ERROR",
+                              "NOTICE",
                               "WARN",
                               "WARNING",
-                              "DEBUG",
+                              "ERROR",
                               "SEVERE",
+                              "CRITICAL",
+                              "FATAL",
+                              "ALERT",
+                              "EMERG",
+                              "EMERGENCY",
                             ];
                             standardLevels.forEach((lvl) =>
                               props.onAddFilter?.(lvl, "exclude"),
