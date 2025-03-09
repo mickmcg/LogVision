@@ -10,8 +10,10 @@ import LogDisplay from "./log-viewer/LogDisplay";
 import LogStats from "./log-viewer/LogStats";
 import TimeRangeFilter from "./log-viewer/TimeRangeFilter";
 import TimeSeriesChart from "./log-viewer/TimeSeriesChart";
+import RecentFiles, { RecentFile } from "./log-viewer/RecentFiles";
 import { parseLogLine, parseTimestamp } from "@/lib/utils";
 import { FilterPresets, type FilterPreset } from "./log-viewer/FilterPresets";
+import ExportButton from "./log-viewer/ExportButton";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -35,6 +37,7 @@ interface LogFile {
     id: string;
     type: "include" | "exclude";
     term: string;
+    isRegex?: boolean;
     operator?: "AND" | "OR";
   }>;
   filterLogic?: "AND" | "OR";
@@ -48,6 +51,7 @@ const Home = () => {
   const [files, setFiles] = useState<LogFile[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isRegexSearch, setIsRegexSearch] = useState(false);
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [processedEntries, setProcessedEntries] = useState<any[]>([]);
   const [visibleEntries, setVisibleEntries] = useState<any[]>([]);
@@ -265,21 +269,54 @@ const Home = () => {
       const includeFilters = filters.filter((f) => f.type === "include");
 
       if (excludeFilters.length > 0) {
-        const shouldExclude = excludeFilters.some((filter) =>
-          entry.message.toLowerCase().includes(filter.term.toLowerCase()),
-        );
+        const shouldExclude = excludeFilters.some((filter) => {
+          if (filter.isRegex) {
+            try {
+              const regex = new RegExp(filter.term, "i");
+              return regex.test(entry.message);
+            } catch (error) {
+              console.error("Invalid regex pattern:", error);
+              return false;
+            }
+          }
+          return entry.message
+            .toLowerCase()
+            .includes(filter.term.toLowerCase());
+        });
         if (shouldExclude) return false;
       }
 
       if (includeFilters.length > 0) {
         if (filterLogic === "AND") {
-          return includeFilters.every((filter) =>
-            entry.message.toLowerCase().includes(filter.term.toLowerCase()),
-          );
+          return includeFilters.every((filter) => {
+            if (filter.isRegex) {
+              try {
+                const regex = new RegExp(filter.term, "i");
+                return regex.test(entry.message);
+              } catch (error) {
+                console.error("Invalid regex pattern:", error);
+                return false;
+              }
+            }
+            return entry.message
+              .toLowerCase()
+              .includes(filter.term.toLowerCase());
+          });
         } else {
-          return includeFilters.some((filter) =>
-            entry.message.toLowerCase().includes(filter.term.toLowerCase()),
-          );
+          return includeFilters.some((filter) => {
+            if (filter.isRegex) {
+              try {
+                const regex = new RegExp(filter.term, "i");
+                return regex.test(entry.message);
+              } catch (error) {
+                console.error("Invalid regex pattern:", error);
+                return false;
+              }
+            }
+            return entry.message
+              .toLowerCase()
+              .includes(filter.term.toLowerCase());
+          });
         }
       }
 
@@ -296,6 +333,136 @@ const Home = () => {
 
   const handleDragLeave = () => {
     setIsDragging(false);
+  };
+
+  const handleRecentFileSelect = async (recentFile: RecentFile) => {
+    try {
+      // Show loading notification
+      const notification = document.createElement("div");
+      notification.className =
+        "fixed bottom-4 right-4 bg-primary text-primary-foreground px-4 py-2 rounded-md shadow-md z-50";
+      notification.innerHTML = `Loading <strong>${recentFile.name}</strong> from storage...`;
+      document.body.appendChild(notification);
+
+      // Import IndexedDB functions
+      const { getLogFileById } = await import("@/lib/indexedDB");
+
+      // Try to load from IndexedDB
+      const logFile = await getLogFileById(recentFile.id);
+      console.log(
+        "Loaded file from IndexedDB:",
+        logFile?.id,
+        logFile?.name,
+        "Content length:",
+        logFile?.content?.length,
+      );
+
+      if (logFile && logFile.content && logFile.content.length > 0) {
+        // Convert date strings back to Date objects
+        const processedFile = {
+          ...logFile,
+          startDate: logFile.startDate
+            ? new Date(logFile.startDate)
+            : undefined,
+          endDate: logFile.endDate ? new Date(logFile.endDate) : undefined,
+          timeRange: logFile.timeRange
+            ? {
+                startDate: logFile.timeRange.startDate
+                  ? new Date(logFile.timeRange.startDate)
+                  : undefined,
+                endDate: logFile.timeRange.endDate
+                  ? new Date(logFile.timeRange.endDate)
+                  : undefined,
+              }
+            : undefined,
+        };
+
+        // Add file to state
+        setFiles((prev) => {
+          // Check if file already exists
+          const existingFileIndex = prev.findIndex(
+            (f) => f.id === processedFile.id,
+          );
+          if (existingFileIndex >= 0) {
+            // Replace existing file
+            const newFiles = [...prev];
+            newFiles[existingFileIndex] = processedFile;
+            return newFiles;
+          } else {
+            // Add new file
+            return [...prev, processedFile];
+          }
+        });
+
+        // Set as active file
+        setActiveFileId(processedFile.id);
+
+        // Update notification
+        notification.innerHTML = `Successfully loaded <strong>${recentFile.name}</strong>`;
+        notification.className =
+          "fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-md shadow-md z-50";
+
+        // Remove notification after 3 seconds
+        setTimeout(() => {
+          notification.classList.add(
+            "opacity-0",
+            "transition-opacity",
+            "duration-500",
+          );
+          setTimeout(() => document.body.removeChild(notification), 500);
+        }, 3000);
+
+        return;
+      }
+
+      // If we get here, the file wasn't in IndexedDB or was empty
+      notification.innerHTML = `Please select <strong>${recentFile.name}</strong> from the file dialog`;
+
+      // Trigger the file input click to open the file selector dialog
+      const fileInput = document.getElementById(
+        "fileInput",
+      ) as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
+
+      // Remove the notification after 5 seconds
+      setTimeout(() => {
+        notification.classList.add(
+          "opacity-0",
+          "transition-opacity",
+          "duration-500",
+        );
+        setTimeout(() => document.body.removeChild(notification), 500);
+      }, 5000);
+    } catch (error) {
+      console.error("Error loading file from IndexedDB:", error);
+
+      // Show error notification
+      const errorNotification = document.createElement("div");
+      errorNotification.className =
+        "fixed bottom-4 right-4 bg-destructive text-destructive-foreground px-4 py-2 rounded-md shadow-md z-50";
+      errorNotification.innerHTML = `Error loading file. Please select it manually.`;
+      document.body.appendChild(errorNotification);
+
+      // Trigger the file input click as fallback
+      const fileInput = document.getElementById(
+        "fileInput",
+      ) as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
+
+      // Remove notification after 5 seconds
+      setTimeout(() => {
+        errorNotification.classList.add(
+          "opacity-0",
+          "transition-opacity",
+          "duration-500",
+        );
+        setTimeout(() => document.body.removeChild(errorNotification), 500);
+      }, 5000);
+    }
   };
 
   const processFiles = async (files: File[]) => {
@@ -548,8 +715,10 @@ const Home = () => {
           const diffMinutes = diffMs / (1000 * 60);
           const targetBuckets = 120; // Aim for more granular bars (120 = 30 sec intervals for 1 hour)
 
-          // Special case for 1-hour range (use 30s buckets)
-          if (diffMinutes <= 60) {
+          // Special cases for small time ranges
+          if (diffMinutes <= 1) {
+            bucketSize = "5s";
+          } else if (diffMinutes <= 60) {
             bucketSize = "30s";
           } else {
             const idealBucketSizeMinutes = Math.max(
@@ -573,7 +742,47 @@ const Home = () => {
           }
         }
 
-        return {
+        // Save to recent files in localStorage
+        const recentFile = {
+          id: fileId,
+          name: file.name,
+          lastOpened: Date.now(),
+          size: file.size,
+          lines: lines.length,
+          startDate: startDate?.toISOString(),
+          endDate: endDate?.toISOString(),
+        };
+
+        // Update recent files in localStorage
+        try {
+          const storedFiles = localStorage.getItem("logTrawler_recentFiles");
+          let recentFiles: RecentFile[] = [];
+
+          if (storedFiles) {
+            recentFiles = JSON.parse(storedFiles);
+          }
+
+          // Remove any existing entry for this file name to avoid duplicates
+          recentFiles = recentFiles.filter((f) => f.name !== file.name);
+
+          // Add the new file to the beginning (most recent)
+          recentFiles.unshift(recentFile);
+
+          // Limit to 20 recent files
+          if (recentFiles.length > 20) {
+            recentFiles = recentFiles.slice(0, 20);
+          }
+
+          localStorage.setItem(
+            "logTrawler_recentFiles",
+            JSON.stringify(recentFiles),
+          );
+        } catch (error) {
+          console.error("Failed to update recent files in localStorage", error);
+        }
+
+        // Create the processed file object
+        const processedFile = {
           id: fileId,
           name: file.name,
           content: lines,
@@ -582,6 +791,26 @@ const Home = () => {
           bucketSize,
           isLoading: false,
         };
+
+        // Save to IndexedDB
+        try {
+          import("@/lib/indexedDB").then(({ saveLogFile }) => {
+            saveLogFile({
+              ...processedFile,
+              content: lines, // Ensure content is included
+              lastOpened: Date.now(),
+              size: file.size,
+              startDate: startDate?.toISOString(),
+              endDate: endDate?.toISOString(),
+            }).catch((err) =>
+              console.error("Failed to save to IndexedDB:", err),
+            );
+          });
+        } catch (error) {
+          console.error("Error importing IndexedDB module:", error);
+        }
+
+        return processedFile;
       }),
     );
 
@@ -624,26 +853,58 @@ const Home = () => {
     if (activeFileId === fileId) {
       setActiveFileId(files.find((f) => f.id !== fileId)?.id || null);
     }
+
+    // Also remove from IndexedDB
+    try {
+      import("@/lib/indexedDB").then(({ deleteLogFile }) => {
+        deleteLogFile(fileId).catch((err) =>
+          console.error("Failed to delete from IndexedDB:", err),
+        );
+      });
+    } catch (error) {
+      console.error("Error importing IndexedDB module:", error);
+    }
   };
 
-  const handleAddFilter = (term: string, type: "include" | "exclude") => {
+  const handleAddFilter = (
+    term: string,
+    type: "include" | "exclude",
+    isRegex = false,
+  ) => {
     if (!term || !activeFile) return;
 
-    setFiles((prev) =>
-      prev.map((file) => {
+    const updatedFiles = (prev) => {
+      return prev.map((file) => {
         if (file.id === activeFile.id) {
           const currentFilters = file.filters || [];
-          return {
+          const updatedFile = {
             ...file,
             filters: [
               ...currentFilters,
-              { id: Math.random().toString(), type, term },
+              { id: Math.random().toString(), type, term, isRegex },
             ],
           };
+
+          // Update in IndexedDB
+          try {
+            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                filters: updatedFile.filters,
+              }).catch((err) =>
+                console.error("Failed to update filters in IndexedDB:", err),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
+          return updatedFile;
         }
         return file;
-      }),
-    );
+      });
+    };
+
+    setFiles(updatedFiles);
   };
 
   const handleFilterLogicChange = (logic: "AND" | "OR") => {
@@ -652,10 +913,28 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
-          return {
+          const updatedFile = {
             ...file,
             filterLogic: logic,
           };
+
+          // Update in IndexedDB
+          try {
+            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                filterLogic: logic,
+              }).catch((err) =>
+                console.error(
+                  "Failed to update filter logic in IndexedDB:",
+                  err,
+                ),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
+          return updatedFile;
         }
         return file;
       }),
@@ -700,10 +979,28 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
-          return {
+          const updatedFile = {
             ...file,
             timeRange: { startDate, endDate },
           };
+
+          // Update in IndexedDB
+          try {
+            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                timeRange: {
+                  startDate: startDate?.toISOString(),
+                  endDate: endDate?.toISOString(),
+                },
+              }).catch((err) =>
+                console.error("Failed to update time range in IndexedDB:", err),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
+          return updatedFile;
         }
         return file;
       }),
@@ -716,16 +1013,39 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
-          return {
+          const updatedFile = {
             ...file,
             bucketSize: size,
             // Preserve the existing time range when changing bucket size
             timeRange: file.timeRange,
           };
+
+          // Update in IndexedDB
+          try {
+            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+              updateLogFile(file.id, {
+                bucketSize: size,
+              }).catch((err) =>
+                console.error(
+                  "Failed to update bucket size in IndexedDB:",
+                  err,
+                ),
+              );
+            });
+          } catch (error) {
+            console.error("Error importing IndexedDB module:", error);
+          }
+
+          return updatedFile;
         }
         return file;
       }),
     );
+  };
+
+  const handleSearch = (term: string, isRegex: boolean = false) => {
+    setSearchTerm(term);
+    setIsRegexSearch(isRegex);
   };
 
   // Memoize chart entries to avoid re-processing on every render
@@ -809,6 +1129,15 @@ const Home = () => {
               ).toFixed(1)}
               % visible)
             </div>
+            {activeFile && (
+              <ExportButton
+                fileName={activeFile.name}
+                content={visibleEntries.map(
+                  (entry) => activeFile.content[entry.lineNumber - 1],
+                )}
+                disabled={!visibleEntries.length}
+              />
+            )}
             <Button
               variant="outline"
               onClick={() => document.getElementById("fileInput")?.click()}
@@ -816,7 +1145,7 @@ const Home = () => {
             >
               <div className="flex items-center gap-2">
                 <Upload className="h-4 w-4" />
-                Upload Log Files
+                Open Log File
               </div>
             </Button>
             <input
@@ -834,18 +1163,23 @@ const Home = () => {
         </div>
 
         {files.length === 0 ? (
-          <div
-            className={`border-2 border-dashed rounded-lg p-12 text-center ${isDragging ? "border-primary bg-primary/10" : "border-muted"}`}
-          >
-            <div className="flex flex-col items-center gap-2">
-              <Upload className="h-8 w-8 text-muted-foreground" />
-              <h3 className="font-semibold text-lg">
-                Drop your log files here
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Drag and drop your log files to start analyzing
-              </p>
+          <div className="flex flex-col gap-4">
+            <div
+              className={`border-2 border-dashed rounded-lg p-12 text-center ${isDragging ? "border-primary bg-primary/10" : "border-muted"}`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <Upload className="h-8 w-8 text-muted-foreground" />
+                <h3 className="font-semibold text-lg">
+                  Drop your log files here
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Drag and drop your log files to start analyzing. Files are
+                  processed 100% locally within your browser and not uploaded to
+                  the internet.
+                </p>
+              </div>
             </div>
+            <RecentFiles onFileSelect={handleRecentFileSelect} />
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -859,6 +1193,89 @@ const Home = () => {
                     key={file.id}
                     value={file.id}
                     className="data-[state=active]:bg-muted relative group overflow-hidden"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const contextMenu = document.createElement("div");
+                      contextMenu.className =
+                        "fixed z-50 bg-popover text-popover-foreground rounded-md border shadow-md p-1 min-w-[12rem]";
+                      contextMenu.style.left = `${e.clientX}px`;
+                      contextMenu.style.top = `${e.clientY}px`;
+
+                      const createMenuItem = (text, onClick) => {
+                        const item = document.createElement("button");
+                        item.className =
+                          "relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground";
+                        item.textContent = text;
+                        item.onclick = onClick;
+                        return item;
+                      };
+
+                      // Close tab
+                      contextMenu.appendChild(
+                        createMenuItem("Close tab", () => {
+                          handleRemoveFile(file.id);
+                          document.body.removeChild(contextMenu);
+                        }),
+                      );
+
+                      // Close other tabs
+                      contextMenu.appendChild(
+                        createMenuItem("Close other tabs", () => {
+                          setFiles((prev) =>
+                            prev.filter((f) => f.id === file.id),
+                          );
+                          setActiveFileId(file.id);
+                          document.body.removeChild(contextMenu);
+                        }),
+                      );
+
+                      // Close tabs to the left
+                      contextMenu.appendChild(
+                        createMenuItem("Close tabs to the left", () => {
+                          const fileIndex = files.findIndex(
+                            (f) => f.id === file.id,
+                          );
+                          if (fileIndex > 0) {
+                            setFiles((prev) =>
+                              prev.filter((f, i) => i >= fileIndex),
+                            );
+                            setActiveFileId(file.id);
+                          }
+                          document.body.removeChild(contextMenu);
+                        }),
+                      );
+
+                      // Close tabs to the right
+                      contextMenu.appendChild(
+                        createMenuItem("Close tabs to the right", () => {
+                          const fileIndex = files.findIndex(
+                            (f) => f.id === file.id,
+                          );
+                          if (fileIndex < files.length - 1) {
+                            setFiles((prev) =>
+                              prev.filter((f, i) => i <= fileIndex),
+                            );
+                            setActiveFileId(file.id);
+                          }
+                          document.body.removeChild(contextMenu);
+                        }),
+                      );
+
+                      document.body.appendChild(contextMenu);
+
+                      // Remove the context menu when clicking outside
+                      const removeContextMenu = () => {
+                        if (document.body.contains(contextMenu)) {
+                          document.body.removeChild(contextMenu);
+                        }
+                        document.removeEventListener(
+                          "click",
+                          removeContextMenu,
+                        );
+                      };
+
+                      document.addEventListener("click", removeContextMenu);
+                    }}
                   >
                     <div className="relative z-10">
                       {file.name}
@@ -972,12 +1389,13 @@ const Home = () => {
                     <div className="flex flex-col h-full">
                       <SearchBar
                         searchTerm={searchTerm}
-                        onSearch={setSearchTerm}
-                        onAddInclude={(term) =>
-                          handleAddFilter(term, "include")
+                        isRegex={isRegexSearch}
+                        onSearch={handleSearch}
+                        onAddInclude={(term, isRegex) =>
+                          handleAddFilter(term, "include", isRegex)
                         }
-                        onAddExclude={(term) =>
-                          handleAddFilter(term, "exclude")
+                        onAddExclude={(term, isRegex) =>
+                          handleAddFilter(term, "exclude", isRegex)
                         }
                       />
                       <ActiveFilters

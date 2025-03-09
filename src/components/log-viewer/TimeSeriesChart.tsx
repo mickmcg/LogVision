@@ -151,13 +151,37 @@ function TimeSeriesChart(props) {
           startTime = new Date(fileStartDate);
           endTime = new Date(fileEndDate);
 
-          // Ensure we have a full day if the timestamps are from the same day
-          if (startTime.toDateString() === endTime.toDateString()) {
-            startTime.setHours(0, 0, 0, 0);
-            const nextDay = new Date(endTime);
-            nextDay.setDate(nextDay.getDate() + 1);
-            nextDay.setHours(0, 0, 0, 0);
-            endTime = nextDay;
+          // Check if the time range is very small (less than 5 minutes)
+          const diffMs = endTime.getTime() - startTime.getTime();
+          const diffMinutes = diffMs / (1000 * 60);
+
+          if (diffMinutes < 5) {
+            // For very small ranges, add padding of 1 minute on each side
+            startTime = new Date(startTime.getTime() - 60 * 1000);
+            endTime = new Date(endTime.getTime() + 60 * 1000);
+          } else if (startTime.toDateString() === endTime.toDateString()) {
+            // For same-day logs that are more than 5 minutes, use a more appropriate range
+            // instead of defaulting to full day
+            if (diffMinutes < 60) {
+              // For less than an hour, add 5 minutes padding on each side
+              startTime = new Date(startTime.getTime() - 5 * 60 * 1000);
+              endTime = new Date(endTime.getTime() + 5 * 60 * 1000);
+            } else if (diffMinutes < 180) {
+              // For 1-3 hours, add 15 minutes padding on each side
+              startTime = new Date(startTime.getTime() - 15 * 60 * 1000);
+              endTime = new Date(endTime.getTime() + 15 * 60 * 1000);
+            } else if (diffMinutes < 720) {
+              // For 3-12 hours, add 30 minutes padding on each side
+              startTime = new Date(startTime.getTime() - 30 * 60 * 1000);
+              endTime = new Date(endTime.getTime() + 30 * 60 * 1000);
+            } else {
+              // For 12+ hours but still same day, use full day
+              startTime.setHours(0, 0, 0, 0);
+              const nextDay = new Date(endTime);
+              nextDay.setDate(nextDay.getDate() + 1);
+              nextDay.setHours(0, 0, 0, 0);
+              endTime = nextDay;
+            }
           }
         } else if (newTimestampData.length > 0) {
           // If no file dates, use the data's min/max
@@ -214,13 +238,35 @@ function TimeSeriesChart(props) {
             bucketSizeInMilliseconds,
         );
 
+        // Ensure we have at least 10 buckets for very small time ranges
+        // This prevents the chart from looking empty with just 1-2 bars
         let currentTime = new Date(normalizedStart);
+        let bucketCount = 0;
+        const minBuckets = 10;
+
+        // Calculate how many buckets we'll have with current settings
+        const expectedBuckets = Math.ceil(
+          (paddedEnd.getTime() - normalizedStart.getTime()) /
+            bucketSizeInMilliseconds,
+        );
+
+        // If we'll have fewer than minBuckets, adjust the bucket size
+        let adjustedBucketSize = bucketSizeInMilliseconds;
+        if (expectedBuckets < minBuckets) {
+          adjustedBucketSize = Math.floor(
+            (paddedEnd.getTime() - normalizedStart.getTime()) / minBuckets,
+          );
+          // Ensure bucket size is at least 1 second
+          adjustedBucketSize = Math.max(adjustedBucketSize, 1000);
+        }
+
+        // Create the buckets
+        currentTime = new Date(normalizedStart);
         while (currentTime <= paddedEnd) {
           const bucketKey = format(currentTime, "yyyy-MM-dd HH:mm:ss");
           buckets[bucketKey] = {};
-          currentTime = new Date(
-            currentTime.getTime() + bucketSizeInMilliseconds,
-          );
+          currentTime = new Date(currentTime.getTime() + adjustedBucketSize);
+          bucketCount++;
         }
 
         // Filter data to the selected time range if zooming
@@ -233,8 +279,8 @@ function TimeSeriesChart(props) {
         // Fill buckets with data
         for (const { date, level } of dataToUse) {
           const bucketTime = new Date(
-            Math.floor(date.getTime() / bucketSizeInMilliseconds) *
-              bucketSizeInMilliseconds,
+            Math.floor(date.getTime() / adjustedBucketSize) *
+              adjustedBucketSize,
           );
           const bucketKey = format(bucketTime, "yyyy-MM-dd HH:mm:ss");
 
@@ -354,8 +400,10 @@ function TimeSeriesChart(props) {
     const diffMinutes = diffMs / (1000 * 60);
     const targetBuckets = 120; // Aim for more granular bars
 
-    // Special case for 1-hour range (use 30s buckets)
-    if (diffMinutes <= 60) {
+    // Special cases for small time ranges
+    if (diffMinutes <= 1) {
+      return "5s";
+    } else if (diffMinutes <= 60) {
       return "30s";
     } else {
       const idealBucketSizeMinutes = Math.max(
@@ -524,6 +572,8 @@ function TimeSeriesChart(props) {
           display: false,
         },
         tooltip: {
+          mode: "index",
+          intersect: false,
           callbacks: {
             title: (context) => {
               if (!context || !context[0]) return "";

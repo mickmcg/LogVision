@@ -28,6 +28,7 @@ interface FilterItem {
   id: string;
   type: "include" | "exclude";
   term: string;
+  isRegex?: boolean;
 }
 
 interface LogDisplayProps {
@@ -192,6 +193,30 @@ const LogDisplay = ({
 
     for (let i = 0; i < filters.length; i++) {
       const filter = filters[i];
+      // Handle regex filters
+      if (filter.isRegex) {
+        try {
+          const regex = new RegExp(filter.term, "g");
+          let match;
+          while ((match = regex.exec(message)) !== null) {
+            const colorIndex = getFilterIndex(filters, filter.id);
+            const colors = getFilterColor(filter.type, colorIndex);
+
+            matches.push({
+              start: match.index,
+              end: match.index + match[0].length,
+              term: match[0],
+              colors,
+            });
+          }
+          continue;
+        } catch (error) {
+          console.error("Invalid regex pattern:", error);
+          continue;
+        }
+      }
+
+      // Standard text search
       const term = filter.term.toLowerCase();
 
       // Skip empty terms
@@ -239,23 +264,56 @@ const LogDisplay = ({
         if (searchTerm.length < 2) return text; // Skip very short search terms
 
         try {
-          const searchRegex = new RegExp(
-            `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-            "gi",
-          );
-          const parts = text.split(searchRegex);
-          return parts.map((part, i) =>
-            part.toLowerCase() === searchTerm.toLowerCase() ? (
+          // Check if searchTerm is a valid regex
+          let searchRegex;
+          try {
+            // Try to create a regex from the search term directly
+            searchRegex = new RegExp(searchTerm, "gi");
+          } catch (e) {
+            // If that fails, escape the search term and use it as a literal string
+            searchRegex = new RegExp(
+              `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+              "gi",
+            );
+          }
+
+          // Use match instead of split for regex to properly handle groups
+          const matches = Array.from(text.matchAll(searchRegex));
+          if (matches.length === 0) return text;
+
+          // Build the highlighted text
+          let lastIndex = 0;
+          const result = [];
+
+          for (let i = 0; i < matches.length; i++) {
+            const match = matches[i];
+            const matchIndex = match.index;
+            const matchText = match[0];
+
+            // Add text before the match
+            if (matchIndex > lastIndex) {
+              result.push(text.substring(lastIndex, matchIndex));
+            }
+
+            // Add the highlighted match
+            result.push(
               <span
                 key={i}
                 className="bg-yellow-100 text-yellow-700 font-medium"
               >
-                {part}
-              </span>
-            ) : (
-              part
-            ),
-          );
+                {matchText}
+              </span>,
+            );
+
+            lastIndex = matchIndex + matchText.length;
+          }
+
+          // Add any remaining text
+          if (lastIndex < text.length) {
+            result.push(text.substring(lastIndex));
+          }
+
+          return result;
         } catch (e) {
           // Fallback if regex fails
           return text;
