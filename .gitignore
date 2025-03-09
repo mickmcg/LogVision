@@ -27,3 +27,8 @@ dist-ssr
 
 **/tempobook/dynamic/
 **/tempobook/storyboards/
+node_modules/.vite/*
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/.cargo-lock
