@@ -1360,12 +1360,12 @@ const Home = () => {
               value={activeFileId || undefined}
               onValueChange={setActiveFileId}
             >
-              <TabsList className="w-full justify-start h-auto p-0 bg-transparent overflow-x-auto">
+              <TabsList className="w-full justify-start h-auto p-0 bg-transparent overflow-x-auto flex-wrap">
                 {files.map((file) => (
                   <TabsTrigger
                     key={file.id}
                     value={file.id}
-                    className="data-[state=active]:bg-muted relative group overflow-hidden"
+                    className="data-[state=active]:bg-muted relative group overflow-hidden max-w-[200px]"
                     onContextMenu={(e) => {
                       e.preventDefault();
                       const contextMenu = document.createElement("div");
@@ -1450,8 +1450,10 @@ const Home = () => {
                       document.addEventListener("click", removeContextMenu);
                     }}
                   >
-                    <div className="relative z-10">
-                      {file.name}
+                    <div className="relative z-10 flex items-center">
+                      <span className="truncate" title={file.name}>
+                        {file.name}
+                      </span>
                       <div
                         role="button"
                         tabIndex={0}

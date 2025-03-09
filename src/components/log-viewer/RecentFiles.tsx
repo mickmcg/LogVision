@@ -165,14 +165,34 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
   });
 
   const clearAllHistory = () => {
-    // Clear localStorage only
+    // Clear localStorage
     localStorage.removeItem("logTrawler_recentFiles");
     setRecentFiles([]);
 
-    // Do NOT clear IndexedDB to prevent data loss
-    console.log(
-      "Cleared recent files history from localStorage only. IndexedDB files are preserved.",
-    );
+    // Also clear IndexedDB
+    try {
+      import("@/lib/indexedDB-fix").then(
+        ({ getAllLogFiles, deleteLogFile }) => {
+          // Get all files first
+          getAllLogFiles().then((files) => {
+            // Delete each file from IndexedDB
+            files.forEach((file) => {
+              deleteLogFile(file.id).catch((err) =>
+                console.error(
+                  `Failed to delete file ${file.id} from IndexedDB:`,
+                  err,
+                ),
+              );
+            });
+            console.log(
+              "Cleared all files from both localStorage and IndexedDB",
+            );
+          });
+        },
+      );
+    } catch (error) {
+      console.error("Error importing IndexedDB module:", error);
+    }
   };
 
   const handleRemoveFile = (id: string) => {
@@ -246,8 +266,8 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
               <AlertDialogHeader>
                 <AlertDialogTitle>Clear Recent Files History</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will remove all recent files from your history. This
-                  action cannot be undone.
+                  This will remove all recent files from your history and delete
+                  all log files from storage. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
