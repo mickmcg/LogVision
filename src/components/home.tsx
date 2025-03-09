@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import SearchBar from "./log-viewer/SearchBar";
 import ActiveFilters from "./log-viewer/ActiveFilters";
 import LogDisplay from "./log-viewer/LogDisplay";
@@ -14,6 +15,7 @@ import RecentFiles, { RecentFile } from "./log-viewer/RecentFiles";
 import { parseLogLine, parseTimestamp } from "@/lib/utils";
 import { FilterPresets, type FilterPreset } from "./log-viewer/FilterPresets";
 import ExportButton from "./log-viewer/ExportButton";
+import NotesPanel from "./log-viewer/NotesPanel";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -44,6 +46,7 @@ interface LogFile {
   bucketSize?: string;
   timeRange?: { startDate?: Date; endDate?: Date };
   isLoading?: boolean;
+  notes?: string;
 }
 
 const Home = () => {
@@ -336,6 +339,56 @@ const Home = () => {
   };
 
   const handleRecentFileSelect = async (recentFile: RecentFile) => {
+    console.log(
+      "Selected recent file:",
+      recentFile.name,
+      "with ID:",
+      recentFile.id,
+    );
+
+    // Check if the ID is a random number (old format) and convert to new format if needed
+    if (recentFile.id.match(/^0\.[0-9]+$/)) {
+      console.log("Converting old ID format to new format");
+      recentFile.id =
+        recentFile.name.replace(/[^a-z0-9]/gi, "_") +
+        "_" +
+        recentFile.lastOpened;
+      console.log("New ID format:", recentFile.id);
+    }
+
+    // Try to get all files first to ensure the database is properly initialized
+    try {
+      // Use the fixed version of IndexedDB
+      const { getAllLogFiles, resetDatabase } = await import(
+        "@/lib/indexedDB-fix"
+      );
+
+      // Check if we need to reset the database due to issues
+      const storedFiles = localStorage.getItem("logTrawler_recentFiles");
+      const recentFilesExist =
+        storedFiles && JSON.parse(storedFiles).length > 0;
+
+      // Get all files from the database
+      const allFiles = await getAllLogFiles();
+      console.log(
+        "All files in IndexedDB:",
+        allFiles.length,
+        "Recent files in localStorage:",
+        recentFilesExist,
+      );
+
+      // If we have recent files in localStorage but none in IndexedDB, don't reset the database
+      // Just log the inconsistency
+      if (recentFilesExist && allFiles.length === 0) {
+        console.log(
+          "Inconsistency detected: Files in localStorage but none in IndexedDB",
+        );
+        // Do not reset the database as it might cause data loss
+        // await resetDatabase();
+      }
+    } catch (error) {
+      console.error("Error getting all files:", error);
+    }
     try {
       // Show loading notification
       const notification = document.createElement("div");
@@ -344,8 +397,8 @@ const Home = () => {
       notification.innerHTML = `Loading <strong>${recentFile.name}</strong> from storage...`;
       document.body.appendChild(notification);
 
-      // Import IndexedDB functions
-      const { getLogFileById } = await import("@/lib/indexedDB");
+      // Import IndexedDB functions - use the fixed version
+      const { getLogFileById } = await import("@/lib/indexedDB-fix");
 
       // Try to load from IndexedDB
       const logFile = await getLogFileById(recentFile.id);
@@ -358,6 +411,14 @@ const Home = () => {
       );
 
       if (logFile && logFile.content && logFile.content.length > 0) {
+        console.log(
+          "Successfully loaded file from IndexedDB:",
+          logFile.id,
+          logFile.name,
+          "Content length:",
+          logFile.content.length,
+        );
+
         // Convert date strings back to Date objects
         const processedFile = {
           ...logFile,
@@ -375,6 +436,7 @@ const Home = () => {
                   : undefined,
               }
             : undefined,
+          notes: logFile.notes || "",
         };
 
         // Add file to state
@@ -466,9 +528,9 @@ const Home = () => {
   };
 
   const processFiles = async (files: File[]) => {
-    // Create temporary IDs for loading files
+    // Create temporary IDs for loading files with a more reliable format
     const loadingFileIds = files.map((file) => ({
-      id: Math.random().toString(),
+      id: file.name.replace(/[^a-z0-9]/gi, "_") + "_" + Date.now(),
       name: file.name,
     }));
 
@@ -497,6 +559,7 @@ const Home = () => {
 
     const processedFiles = await Promise.all(
       files.map(async (file, index) => {
+        // Use the same ID that was created for the loading placeholder
         const fileId = loadingFileIds[index].id;
         const isLargeFile = file.size > 50 * 1024 * 1024; // Lower threshold to 50MB
         const isVeryLargeFile = file.size > 200 * 1024 * 1024; // 200MB threshold
@@ -744,7 +807,7 @@ const Home = () => {
 
         // Save to recent files in localStorage
         const recentFile = {
-          id: fileId,
+          id: fileId, // Make sure this ID matches what's used in IndexedDB
           name: file.name,
           lastOpened: Date.now(),
           size: file.size,
@@ -752,6 +815,8 @@ const Home = () => {
           startDate: startDate?.toISOString(),
           endDate: endDate?.toISOString(),
         };
+
+        console.log("Created recent file with ID:", fileId);
 
         // Update recent files in localStorage
         try {
@@ -794,17 +859,34 @@ const Home = () => {
 
         // Save to IndexedDB
         try {
-          import("@/lib/indexedDB").then(({ saveLogFile }) => {
-            saveLogFile({
+          import("@/lib/indexedDB-fix").then(({ saveLogFile }) => {
+            const fileToSave = {
               ...processedFile,
               content: lines, // Ensure content is included
               lastOpened: Date.now(),
               size: file.size,
               startDate: startDate?.toISOString(),
               endDate: endDate?.toISOString(),
-            }).catch((err) =>
-              console.error("Failed to save to IndexedDB:", err),
+              notes: "", // Initialize with empty notes
+            };
+
+            console.log(
+              "Saving file to IndexedDB with ID:",
+              fileToSave.id,
+              "and name:",
+              fileToSave.name,
             );
+
+            saveLogFile(fileToSave)
+              .then((savedId) => {
+                console.log(
+                  "Successfully saved file to IndexedDB with ID:",
+                  savedId,
+                );
+              })
+              .catch((err) =>
+                console.error("Failed to save to IndexedDB:", err),
+              );
           });
         } catch (error) {
           console.error("Error importing IndexedDB module:", error);
@@ -818,7 +900,15 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         const processedFile = processedFiles.find((pf) => pf.id === file.id);
-        return processedFile || file;
+        if (processedFile) {
+          console.log(
+            "Replacing loading file with processed file:",
+            processedFile.id,
+            processedFile.name,
+          );
+          return processedFile;
+        }
+        return file;
       }),
     );
 
@@ -854,15 +944,22 @@ const Home = () => {
       setActiveFileId(files.find((f) => f.id !== fileId)?.id || null);
     }
 
-    // Also remove from IndexedDB
+    // Only remove from localStorage, not from IndexedDB
     try {
-      import("@/lib/indexedDB").then(({ deleteLogFile }) => {
-        deleteLogFile(fileId).catch((err) =>
-          console.error("Failed to delete from IndexedDB:", err),
+      const storedFiles = localStorage.getItem("logTrawler_recentFiles");
+      if (storedFiles) {
+        const recentFiles = JSON.parse(storedFiles);
+        const updatedFiles = recentFiles.filter((f) => f.id !== fileId);
+        localStorage.setItem(
+          "logTrawler_recentFiles",
+          JSON.stringify(updatedFiles),
         );
-      });
+        console.log(
+          "Removed file from localStorage only, preserving in IndexedDB",
+        );
+      }
     } catch (error) {
-      console.error("Error importing IndexedDB module:", error);
+      console.error("Error updating localStorage:", error);
     }
   };
 
@@ -887,7 +984,7 @@ const Home = () => {
 
           // Update in IndexedDB
           try {
-            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
                 filters: updatedFile.filters,
               }).catch((err) =>
@@ -920,7 +1017,7 @@ const Home = () => {
 
           // Update in IndexedDB
           try {
-            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
                 filterLogic: logic,
               }).catch((err) =>
@@ -986,7 +1083,7 @@ const Home = () => {
 
           // Update in IndexedDB
           try {
-            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
                 timeRange: {
                   startDate: startDate?.toISOString(),
@@ -1022,7 +1119,7 @@ const Home = () => {
 
           // Update in IndexedDB
           try {
-            import("@/lib/indexedDB").then(({ updateLogFile }) => {
+            import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
                 bucketSize: size,
               }).catch((err) =>
@@ -1348,16 +1445,65 @@ const Home = () => {
                     minSize={0}
                     className={statsVisible ? "hidden md:block" : "hidden"}
                   >
-                    <LogStats
-                      entries={visibleEntries}
-                      allEntries={processedEntries}
-                      showHourlyActivity={false}
-                      onToggle={() => setStatsVisible(!statsVisible)}
-                      showStats={statsVisible}
-                      onAddFilter={(term, type = "include") =>
-                        handleAddFilter(term, type)
-                      }
-                    />
+                    <div className="flex flex-col h-full">
+                      <ScrollArea className="h-[830px]">
+                        <div className="p-3 space-y-3">
+                          <LogStats
+                            entries={visibleEntries}
+                            allEntries={processedEntries}
+                            showHourlyActivity={false}
+                            onToggle={() => setStatsVisible(!statsVisible)}
+                            showStats={statsVisible}
+                            onAddFilter={(term, type = "include") =>
+                              handleAddFilter(term, type)
+                            }
+                          />
+
+                          {/* Notes Panel - positioned immediately below Log Levels with no gap */}
+                          {activeFile && (
+                            <NotesPanel
+                              fileId={activeFile.id}
+                              initialNotes={activeFile.notes || ""}
+                              onSaveNotes={(notes) => {
+                                // Update notes in state
+                                setFiles((prev) =>
+                                  prev.map((file) => {
+                                    if (file.id === activeFile.id) {
+                                      return {
+                                        ...file,
+                                        notes,
+                                      };
+                                    }
+                                    return file;
+                                  }),
+                                );
+
+                                // Save to IndexedDB
+                                try {
+                                  import("@/lib/indexedDB-fix").then(
+                                    ({ updateLogFile }) => {
+                                      updateLogFile(activeFile.id, {
+                                        notes,
+                                      }).catch((err) =>
+                                        console.error(
+                                          "Failed to update notes in IndexedDB:",
+                                          err,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                } catch (error) {
+                                  console.error(
+                                    "Error importing IndexedDB module:",
+                                    error,
+                                  );
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </div>
                   </ResizablePanel>
                   {!statsVisible && (
                     <div className="w-8 flex items-start justify-center pt-4 hidden md:flex">

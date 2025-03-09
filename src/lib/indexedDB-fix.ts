@@ -17,6 +17,7 @@ interface LogFileData {
   filterLogic?: "AND" | "OR";
   bucketSize?: string;
   timeRange?: { startDate?: string; endDate?: string };
+  notes?: string;
 }
 
 const DB_NAME = "logTrawlerDB";
@@ -26,28 +27,73 @@ const LOG_FILES_STORE = "logFiles";
 // Initialize the database
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    // First check if the database exists
+    const databases = indexedDB.databases
+      ? indexedDB.databases()
+      : Promise.resolve([]);
 
-    request.onerror = (event) => {
-      console.error("IndexedDB error:", event);
-      reject("Failed to open database");
-    };
+    databases
+      .then((dbs) => {
+        const dbExists = dbs.some((db) => db.name === DB_NAME);
+        console.log(`Database ${DB_NAME} exists: ${dbExists}`);
 
-    request.onsuccess = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      resolve(db);
-    };
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
+        request.onerror = (event) => {
+          console.error("IndexedDB error:", event);
+          reject("Failed to open database");
+        };
 
-      // Create object store for log files
-      if (!db.objectStoreNames.contains(LOG_FILES_STORE)) {
-        const store = db.createObjectStore(LOG_FILES_STORE, { keyPath: "id" });
-        store.createIndex("name", "name", { unique: false });
-        store.createIndex("lastOpened", "lastOpened", { unique: false });
-      }
-    };
+        request.onsuccess = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          console.log(`Successfully opened database ${DB_NAME}`);
+          resolve(db);
+        };
+
+        request.onupgradeneeded = (event) => {
+          console.log(`Upgrading database ${DB_NAME} to version ${DB_VERSION}`);
+          const db = (event.target as IDBOpenDBRequest).result;
+
+          // Create object store for log files
+          if (!db.objectStoreNames.contains(LOG_FILES_STORE)) {
+            console.log(`Creating object store ${LOG_FILES_STORE}`);
+            const store = db.createObjectStore(LOG_FILES_STORE, {
+              keyPath: "id",
+            });
+            store.createIndex("name", "name", { unique: false });
+            store.createIndex("lastOpened", "lastOpened", { unique: false });
+            console.log(`Created object store ${LOG_FILES_STORE}`);
+          }
+        };
+      })
+      .catch((err) => {
+        console.error("Error checking databases:", err);
+        // Fallback to just opening the database
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onerror = (event) => {
+          console.error("IndexedDB error:", event);
+          reject("Failed to open database");
+        };
+
+        request.onsuccess = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          resolve(db);
+        };
+
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+
+          // Create object store for log files
+          if (!db.objectStoreNames.contains(LOG_FILES_STORE)) {
+            const store = db.createObjectStore(LOG_FILES_STORE, {
+              keyPath: "id",
+            });
+            store.createIndex("name", "name", { unique: false });
+            store.createIndex("lastOpened", "lastOpened", { unique: false });
+          }
+        };
+      });
   });
 };
 
@@ -66,6 +112,10 @@ export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
 
       nameRequest.onsuccess = (e) => {
         const existingFiles = (e.target as IDBRequest).result;
+        console.log(
+          `Found ${existingFiles.length} existing files with name index`,
+        );
+
         const existingFile = existingFiles.find((f) => f.name === logFile.name);
 
         if (existingFile) {
@@ -106,6 +156,7 @@ export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
         const request = store.put(fileToStore);
 
         request.onsuccess = () => {
+          console.log(`Successfully saved file ${fileToStore.id} to IndexedDB`);
           resolve(logFile.id);
         };
 
@@ -184,72 +235,71 @@ export const getLogFileById = async (
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([LOG_FILES_STORE], "readonly");
       const store = transaction.objectStore(LOG_FILES_STORE);
-      const request = store.get(id);
 
-      request.onsuccess = (event) => {
-        const result = (event.target as IDBRequest).result;
-        if (result) {
-          // Update lastOpened time
-          const updateTx = db.transaction([LOG_FILES_STORE], "readwrite");
-          const updateStore = updateTx.objectStore(LOG_FILES_STORE);
-          result.lastOpened = Date.now();
-          updateStore.put(result);
+      // First try to get all files to see what's in the database
+      const allRequest = store.getAll();
 
-          // Log the result for debugging
-          console.log(
-            "Found file in IndexedDB:",
-            result.id,
-            result.name,
-            "Content:",
-            result.content?.length || 0,
-          );
-        } else {
-          // Try with a different ID format (for backward compatibility)
-          // Extract the filename from the ID
-          const nameParts = id.split("_");
-          if (nameParts.length > 1) {
-            // Try to extract the actual filename without the timestamp
-            const fileName = nameParts.slice(0, -1).join("_");
-            console.log("Trying alternative lookup with filename:", fileName);
+      allRequest.onsuccess = (event) => {
+        const allFiles = (event.target as IDBRequest).result || [];
+        console.log(
+          `Database contains ${allFiles.length} files:`,
+          allFiles.map((f) => ({ id: f.id, name: f.name })),
+        );
 
-            // Look up by name directly
-            const nameIndex = store.index("name");
-            const nameRequest = nameIndex.getAll();
+        // Now try to get the specific file
+        const request = store.get(id);
 
-            nameRequest.onsuccess = (e) => {
-              const files = (e.target as IDBRequest).result;
-              console.log(
-                "Found files in DB:",
-                files.map((f) => ({ id: f.id, name: f.name })),
-              );
+        request.onsuccess = (event) => {
+          const result = (event.target as IDBRequest).result;
+          if (result) {
+            // Update lastOpened time
+            const updateTx = db.transaction([LOG_FILES_STORE], "readwrite");
+            const updateStore = updateTx.objectStore(LOG_FILES_STORE);
+            result.lastOpened = Date.now();
+            updateStore.put(result);
 
-              // Try multiple matching strategies
-              let matchingFile = files.find((f) => f.id === id);
+            // Log the result for debugging
+            console.log(
+              "Found file in IndexedDB:",
+              result.id,
+              result.name,
+              "Content:",
+              result.content?.length || 0,
+            );
+            resolve(result);
+          } else {
+            console.log(
+              `File with ID ${id} not found directly, trying alternative lookups`,
+            );
 
-              if (!matchingFile) {
-                // Try matching by name
-                matchingFile = files.find((f) => f.name === nameParts[0]);
-              }
+            // Try with a different ID format (for backward compatibility)
+            // Extract the filename from the ID
+            const nameParts = id.split("_");
+            if (nameParts.length > 1) {
+              // Try to extract the actual filename without the timestamp
+              const fileName = nameParts[0]; // Just use the first part as the filename
+              console.log("Trying alternative lookup with filename:", fileName);
 
-              if (!matchingFile) {
-                // Try matching by normalized name
-                const normalizedName = nameParts[0].replace(/[^a-z0-9]/gi, "_");
-                matchingFile = files.find(
-                  (f) => f.name.replace(/[^a-z0-9]/gi, "_") === normalizedName,
+              // Look for any file with a similar name
+              const matchingFile = allFiles.find((f) => {
+                // Try exact name match
+                if (f.name === fileName) return true;
+
+                // Try normalized name match
+                const normalizedName = fileName
+                  .replace(/[^a-z0-9]/gi, "")
+                  .toLowerCase();
+                const normalizedFilename = f.name
+                  .replace(/[^a-z0-9]/gi, "")
+                  .toLowerCase();
+                if (normalizedName === normalizedFilename) return true;
+
+                // Try substring match
+                return (
+                  f.name.toLowerCase().includes(fileName.toLowerCase()) ||
+                  fileName.toLowerCase().includes(f.name.toLowerCase())
                 );
-              }
-
-              if (!matchingFile) {
-                // Last resort: try to find any file with a similar name
-                matchingFile = files.find((f) => {
-                  const fileNameLower = f.name.toLowerCase();
-                  const searchNameLower = nameParts[0].toLowerCase();
-                  return (
-                    fileNameLower.includes(searchNameLower) ||
-                    searchNameLower.includes(fileNameLower)
-                  );
-                });
-              }
+              });
 
               if (matchingFile) {
                 console.log(
@@ -258,27 +308,24 @@ export const getLogFileById = async (
                   matchingFile.name,
                 );
                 resolve(matchingFile);
-              } else {
-                console.log("File not found in IndexedDB by name either");
-                resolve(null);
+                return;
               }
-            };
+            }
 
-            nameRequest.onerror = () => {
-              console.log("Error looking up file by name");
-              resolve(null);
-            };
-            return;
+            console.log("File not found in IndexedDB after all attempts");
+            resolve(null);
           }
+        };
 
-          console.log("File not found in IndexedDB");
-        }
-        resolve(result || null);
+        request.onerror = (event) => {
+          console.error("Error getting log file:", event);
+          reject("Failed to get log file");
+        };
       };
 
-      request.onerror = (event) => {
-        console.error("Error getting log file:", event);
-        reject("Failed to get log file");
+      allRequest.onerror = (event) => {
+        console.error("Error getting all files:", event);
+        reject("Failed to get all files");
       };
 
       transaction.oncomplete = () => {
@@ -371,6 +418,21 @@ export const updateLogFile = async (
     });
   } catch (error) {
     console.error("Error in updateLogFile:", error);
+    return false;
+  }
+};
+
+// Reset the database (for troubleshooting)
+export const resetDatabase = async (): Promise<boolean> => {
+  console.warn(
+    "DISABLED: resetDatabase was called but is now disabled to prevent data loss",
+  );
+  // Instead of deleting the database, just initialize it if it doesn't exist
+  try {
+    await initDB();
+    return true;
+  } catch (error) {
+    console.error(`Error in resetDatabase:`, error);
     return false;
   }
 };

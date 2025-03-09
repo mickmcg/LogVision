@@ -64,8 +64,16 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
     // Then try to load from IndexedDB and merge with localStorage files
     const loadFromIndexedDB = async () => {
       try {
-        const { getAllLogFiles } = await import("@/lib/indexedDB");
+        // Initialize the database first to ensure it exists - use the fixed version
+        const { initDB, getAllLogFiles } = await import("@/lib/indexedDB-fix");
+        await initDB();
+
+        console.log("Fetching files from IndexedDB...");
         const indexedDBFiles = await getAllLogFiles();
+        console.log(
+          "Retrieved files from IndexedDB:",
+          indexedDBFiles?.length || 0,
+        );
 
         if (indexedDBFiles && indexedDBFiles.length > 0) {
           // Convert IndexedDB files to RecentFile format
@@ -153,27 +161,23 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
   });
 
   const clearAllHistory = () => {
-    // Clear localStorage
+    // Clear localStorage only
     localStorage.removeItem("logTrawler_recentFiles");
     setRecentFiles([]);
 
-    // Also clear IndexedDB
-    try {
-      import("@/lib/indexedDB").then(({ getAllLogFiles, deleteLogFile }) => {
-        getAllLogFiles().then((files) => {
-          files.forEach((file) => {
-            deleteLogFile(file.id).catch((err) =>
-              console.error("Failed to delete file from IndexedDB:", err),
-            );
-          });
-        });
-      });
-    } catch (error) {
-      console.error("Error importing IndexedDB module:", error);
-    }
+    // Do NOT clear IndexedDB to prevent data loss
+    console.log(
+      "Cleared recent files history from localStorage only. IndexedDB files are preserved.",
+    );
   };
 
   const handleRemoveFile = (id: string) => {
+    // Check if the file exists before removing
+    const fileToRemove = recentFiles.find((file) => file.id === id);
+    if (!fileToRemove) return;
+
+    console.log("Removing file:", fileToRemove.name, "with ID:", id);
+
     const updatedFiles = recentFiles.filter((file) => file.id !== id);
     setRecentFiles(updatedFiles);
     localStorage.setItem(
@@ -183,7 +187,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
 
     // Also remove from IndexedDB if it exists there
     try {
-      import("@/lib/indexedDB").then(({ deleteLogFile }) => {
+      import("@/lib/indexedDB-fix").then(({ deleteLogFile }) => {
         deleteLogFile(id).catch((err) =>
           console.error("Failed to delete from IndexedDB:", err),
         );
@@ -333,6 +337,9 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
                           >
                             <FileText className="h-4 w-4" />
                             {file.name}
+                            <span className="text-xs text-muted-foreground">
+                              (ID: {file.id.substring(0, 8)}...)
+                            </span>
                           </button>
                         </TooltipTrigger>
                         <TooltipContent>
