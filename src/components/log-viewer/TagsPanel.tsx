@@ -85,7 +85,7 @@ const TagsPanel = ({
             <Badge
               key={index}
               variant="secondary"
-              className="flex items-center gap-1 px-2 py-1"
+              className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white border border-blue-700 hover:bg-blue-700"
             >
               {tag}
               <X

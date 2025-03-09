@@ -120,11 +120,7 @@ function TimeSeriesChart(props) {
             );
 
           const level = levelMatch
-            ? levelMatch[1].toUpperCase() === "WARNING"
-              ? "WARN"
-              : levelMatch[1].toUpperCase() === "EMERGENCY"
-                ? "EMERG"
-                : levelMatch[1].toUpperCase()
+            ? levelMatch[1].toUpperCase()
             : parsed.message.match(
                   /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
                 )
@@ -132,19 +128,7 @@ function TimeSeriesChart(props) {
                   .match(
                     /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
                   )[1]
-                  .toUpperCase() === "WARNING"
-                ? "WARN"
-                : parsed.message
-                      .match(
-                        /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
-                      )[1]
-                      .toUpperCase() === "EMERGENCY"
-                  ? "EMERG"
-                  : parsed.message
-                      .match(
-                        /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
-                      )[1]
-                      .toUpperCase()
+                  .toUpperCase()
               : "OTHER";
 
           newTimestampData.push({ date, level });
@@ -359,7 +343,15 @@ function TimeSeriesChart(props) {
             backgroundColor: "rgba(120, 27, 98, 0.6)",
             borderColor: "rgb(120, 27, 98)",
           },
+          EMERGENCY: {
+            backgroundColor: "rgba(120, 27, 98, 0.6)",
+            borderColor: "rgb(120, 27, 98)",
+          },
           WARN: {
+            backgroundColor: "rgba(245, 158, 11, 0.6)",
+            borderColor: "rgb(245, 158, 11)",
+          },
+          WARNING: {
             backgroundColor: "rgba(245, 158, 11, 0.6)",
             borderColor: "rgb(245, 158, 11)",
           },
@@ -612,8 +604,16 @@ function TimeSeriesChart(props) {
           display: false,
         },
         tooltip: {
+          enabled: true,
           mode: "index" as const,
           intersect: false,
+          animation: false,
+          position: "nearest",
+          backgroundColor: "rgba(0, 0, 0, 0.8)",
+          titleFont: { size: 12 },
+          bodyFont: { size: 11 },
+          footerFont: { size: 10 },
+          displayColors: true,
           callbacks: {
             title: (context) => {
               if (!context || !context[0]) return "";

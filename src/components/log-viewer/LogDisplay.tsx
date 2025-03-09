@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronsUp,
   ChevronsDown,
+  BookmarkIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,6 +44,11 @@ interface LogDisplayProps {
   timeRange?: { startDate?: Date; endDate?: Date };
   onAddInclude?: (term: string) => void;
   onAddExclude?: (term: string) => void;
+  fileId?: string;
+  onUpdateInterestingLines?: (fileId: string, lines: number[]) => void;
+  initialInterestingLines?: number[];
+  initialShowOnlyMarked?: boolean;
+  onUpdateShowOnlyMarked?: (fileId: string, showOnly: boolean) => void;
 }
 
 const DEFAULT_ENTRIES: LogEntry[] = [
@@ -77,19 +83,40 @@ interface LogEntryRowProps {
   wrapText: boolean;
   highlightText: (text: string) => React.ReactNode;
   onContextMenu: (e: React.MouseEvent) => void;
+  isInteresting?: boolean;
+  onMarkInteresting?: (lineNumber: number) => void;
 }
 
 // Memoized log entry component for better performance
 const LogEntryRow = memo<LogEntryRowProps>(
-  ({ entry, index, wrapText, highlightText, onContextMenu }) => {
+  ({
+    entry,
+    index,
+    wrapText,
+    highlightText,
+    onContextMenu,
+    isInteresting,
+    onMarkInteresting,
+  }) => {
     return (
       <div
         className={`flex gap-4 py-3 px-4 ${index % 2 === 0 ? "bg-muted/50" : "bg-background"}`}
         onContextMenu={onContextMenu}
       >
-        <span className="w-12 text-right text-muted-foreground shrink-0">
-          {entry.lineNumber}
-        </span>
+        <div className="w-12 text-right text-muted-foreground shrink-0 flex items-center justify-end gap-1 relative">
+          {isInteresting && (
+            <span className="absolute left-0 flex items-center justify-center">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500"></span>
+            </span>
+          )}
+          <span
+            className="cursor-pointer hover:text-primary transition-colors"
+            onClick={() => onMarkInteresting?.(entry.lineNumber)}
+            title="Click to mark as interesting"
+          >
+            {entry.lineNumber}
+          </span>
+        </div>
         <span className="w-[200px] text-muted-foreground shrink-0 font-mono">
           {entry.timestamp}
         </span>
@@ -110,6 +137,11 @@ const LogDisplay = ({
   className = "",
   onAddInclude = () => {},
   onAddExclude = () => {},
+  fileId = "",
+  onUpdateInterestingLines = () => {},
+  initialInterestingLines = [],
+  initialShowOnlyMarked = false,
+  onUpdateShowOnlyMarked = () => {},
 }: LogDisplayProps) => {
   const [wrapText, setWrapText] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -121,6 +153,10 @@ const LogDisplay = ({
   } | null>(null);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 });
   const [scrolling, setScrolling] = useState(false);
+  const [interestingLines, setInterestingLines] = useState<Set<number>>(
+    new Set(initialInterestingLines),
+  );
+  const [showOnlyMarked, setShowOnlyMarked] = useState(initialShowOnlyMarked);
 
   // Handle context menu closing
   useEffect(() => {
@@ -421,11 +457,33 @@ const LogDisplay = ({
     }
   };
 
+  // Update IndexedDB when interesting lines change
+  useEffect(() => {
+    if (fileId && interestingLines.size > 0) {
+      onUpdateInterestingLines(fileId, Array.from(interestingLines));
+    }
+  }, [interestingLines, fileId, onUpdateInterestingLines]);
+
+  // Update IndexedDB when showOnlyMarked changes
+  useEffect(() => {
+    if (fileId) {
+      onUpdateShowOnlyMarked(fileId, showOnlyMarked);
+    }
+  }, [showOnlyMarked, fileId, onUpdateShowOnlyMarked]);
+
+  // Filter entries if showing only marked lines
+  const filteredEntries = showOnlyMarked
+    ? entries.filter((entry) => interestingLines.has(entry.lineNumber))
+    : entries;
+
   // Only render visible entries for better performance
-  const visibleEntries = entries.slice(visibleRange.start, visibleRange.end);
+  const visibleEntries = filteredEntries.slice(
+    visibleRange.start,
+    visibleRange.end,
+  );
 
   // Calculate total height to maintain proper scrollbar
-  const totalHeight = entries.length * 40; // Approximate height of each entry
+  const totalHeight = filteredEntries.length * 40; // Approximate height of each entry
   const topPadding = visibleRange.start * 40;
 
   return (
@@ -436,8 +494,10 @@ const LogDisplay = ({
     >
       <div className="h-full w-full font-mono text-sm flex flex-col">
         <div className="flex gap-4 py-2 px-4 border-b bg-muted/50 font-semibold sticky top-0 z-20">
-          <span className="w-12 text-right text-muted-foreground shrink-0">
-            Line #
+          <span className="w-12 text-right text-muted-foreground shrink-0 flex items-center justify-end">
+            <span title="Click line numbers to mark as interesting">
+              Line #
+            </span>
           </span>
           <span className="w-[200px] text-muted-foreground shrink-0">
             Timestamp
@@ -532,6 +592,26 @@ const LogDisplay = ({
                     <ButtonWithRef
                       variant="ghost"
                       size="icon"
+                      onClick={() => setShowOnlyMarked(!showOnlyMarked)}
+                      className="text-muted-foreground"
+                    >
+                      <BookmarkIcon
+                        className={`h-4 w-4 ${showOnlyMarked ? "text-red-500" : ""}`}
+                      />
+                    </ButtonWithRef>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Show only marked lines</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ButtonWithRef
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setWrapText(!wrapText)}
                       className={
                         wrapText ? "text-primary" : "text-muted-foreground"
@@ -571,6 +651,18 @@ const LogDisplay = ({
                   wrapText={wrapText}
                   highlightText={highlightText}
                   onContextMenu={(e) => handleContextMenu(e, entry)}
+                  isInteresting={interestingLines.has(entry.lineNumber)}
+                  onMarkInteresting={(lineNumber) => {
+                    setInterestingLines((prev) => {
+                      const newSet = new Set(prev);
+                      if (newSet.has(lineNumber)) {
+                        newSet.delete(lineNumber);
+                      } else {
+                        newSet.add(lineNumber);
+                      }
+                      return newSet;
+                    });
+                  }}
                 />
               ))}
             </div>

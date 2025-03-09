@@ -19,6 +19,8 @@ interface LogFileData {
   timeRange?: { startDate?: string; endDate?: string };
   notes?: string;
   tags?: string[];
+  interestingLines?: number[];
+  showOnlyMarked?: boolean;
 }
 
 const DB_NAME = "logTrawlerDB";
@@ -36,44 +38,36 @@ export const initDB = (): Promise<IDBDatabase> => {
     databases
       .then((dbs) => {
         const dbExists = dbs.some((db) => db.name === DB_NAME);
-        console.log(`Database ${DB_NAME} exists: ${dbExists}`);
 
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onerror = (event) => {
-          console.error("IndexedDB error:", event);
           reject("Failed to open database");
         };
 
         request.onsuccess = (event) => {
           const db = (event.target as IDBOpenDBRequest).result;
-          console.log(`Successfully opened database ${DB_NAME}`);
           resolve(db);
         };
 
         request.onupgradeneeded = (event) => {
-          console.log(`Upgrading database ${DB_NAME} to version ${DB_VERSION}`);
           const db = (event.target as IDBOpenDBRequest).result;
 
           // Create object store for log files
           if (!db.objectStoreNames.contains(LOG_FILES_STORE)) {
-            console.log(`Creating object store ${LOG_FILES_STORE}`);
             const store = db.createObjectStore(LOG_FILES_STORE, {
               keyPath: "id",
             });
             store.createIndex("name", "name", { unique: false });
             store.createIndex("lastOpened", "lastOpened", { unique: false });
-            console.log(`Created object store ${LOG_FILES_STORE}`);
           }
         };
       })
       .catch((err) => {
-        console.error("Error checking databases:", err);
         // Fallback to just opening the database
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onerror = (event) => {
-          console.error("IndexedDB error:", event);
           reject("Failed to open database");
         };
 
@@ -100,7 +94,6 @@ export const initDB = (): Promise<IDBDatabase> => {
 
 // Save a log file to IndexedDB
 export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
-  console.log("Saving log file with ID:", logFile.id);
   try {
     const db = await initDB();
     return new Promise((resolve, reject) => {
@@ -113,17 +106,9 @@ export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
 
       nameRequest.onsuccess = (e) => {
         const existingFiles = (e.target as IDBRequest).result;
-        console.log(
-          `Found ${existingFiles.length} existing files with name index`,
-        );
-
         const existingFile = existingFiles.find((f) => f.name === logFile.name);
 
         if (existingFile) {
-          console.log(
-            "Found existing file with same name, updating ID to match:",
-            existingFile.id,
-          );
           // Use the existing ID to ensure we update rather than create a new entry
           logFile.id = existingFile.id;
         }
@@ -146,23 +131,13 @@ export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
             : undefined,
         };
 
-        console.log(
-          "Saving file to IndexedDB:",
-          fileToStore.id,
-          fileToStore.name,
-          "Content length:",
-          fileToStore.content.length,
-        );
-
         const request = store.put(fileToStore);
 
         request.onsuccess = () => {
-          console.log(`Successfully saved file ${fileToStore.id} to IndexedDB`);
           resolve(logFile.id);
         };
 
         request.onerror = (event) => {
-          console.error("Error saving log file:", event);
           reject("Failed to save log file");
         };
 
@@ -172,12 +147,10 @@ export const saveLogFile = async (logFile: LogFileData): Promise<string> => {
       };
 
       nameRequest.onerror = (event) => {
-        console.error("Error checking for existing files:", event);
         reject("Failed to check for existing files");
       };
     });
   } catch (error) {
-    console.error("Error in saveLogFile:", error);
     throw error;
   }
 };
@@ -197,16 +170,10 @@ export const getAllLogFiles = async (): Promise<LogFileData[]> => {
         const logFiles = (event.target as IDBRequest).result || [];
         // Sort by lastOpened in descending order
         logFiles.sort((a, b) => b.lastOpened - a.lastOpened);
-        console.log(
-          "Retrieved all files from IndexedDB:",
-          logFiles.length,
-          "files",
-        );
         resolve(logFiles);
       };
 
       request.onerror = (event) => {
-        console.error("Error getting log files:", event);
         reject("Failed to get log files");
       };
 
@@ -215,7 +182,6 @@ export const getAllLogFiles = async (): Promise<LogFileData[]> => {
       };
     });
   } catch (error) {
-    console.error("Error in getAllLogFiles:", error);
     return [];
   }
 };
@@ -224,11 +190,8 @@ export const getAllLogFiles = async (): Promise<LogFileData[]> => {
 export const getLogFileById = async (
   id: string,
 ): Promise<LogFileData | null> => {
-  console.log("Getting log file by ID:", id);
-
   // Validate the ID is not empty
   if (!id || id.trim() === "") {
-    console.error("Invalid ID provided to getLogFileById");
     return null;
   }
   try {
@@ -242,10 +205,6 @@ export const getLogFileById = async (
 
       allRequest.onsuccess = (event) => {
         const allFiles = (event.target as IDBRequest).result || [];
-        console.log(
-          `Database contains ${allFiles.length} files:`,
-          allFiles.map((f) => ({ id: f.id, name: f.name })),
-        );
 
         // Now try to get the specific file
         const request = store.get(id);
@@ -258,28 +217,14 @@ export const getLogFileById = async (
             const updateStore = updateTx.objectStore(LOG_FILES_STORE);
             result.lastOpened = Date.now();
             updateStore.put(result);
-
-            // Log the result for debugging
-            console.log(
-              "Found file in IndexedDB:",
-              result.id,
-              result.name,
-              "Content:",
-              result.content?.length || 0,
-            );
             resolve(result);
           } else {
-            console.log(
-              `File with ID ${id} not found directly, trying alternative lookups`,
-            );
-
             // Try with a different ID format (for backward compatibility)
             // Extract the filename from the ID
             const nameParts = id.split("_");
             if (nameParts.length > 1) {
               // Try to extract the actual filename without the timestamp
               const fileName = nameParts[0]; // Just use the first part as the filename
-              console.log("Trying alternative lookup with filename:", fileName);
 
               // Look for any file with a similar name
               const matchingFile = allFiles.find((f) => {
@@ -303,29 +248,20 @@ export const getLogFileById = async (
               });
 
               if (matchingFile) {
-                console.log(
-                  "Found file by name:",
-                  matchingFile.id,
-                  matchingFile.name,
-                );
                 resolve(matchingFile);
                 return;
               }
             }
-
-            console.log("File not found in IndexedDB after all attempts");
             resolve(null);
           }
         };
 
         request.onerror = (event) => {
-          console.error("Error getting log file:", event);
           reject("Failed to get log file");
         };
       };
 
       allRequest.onerror = (event) => {
-        console.error("Error getting all files:", event);
         reject("Failed to get all files");
       };
 
@@ -334,7 +270,6 @@ export const getLogFileById = async (
       };
     });
   } catch (error) {
-    console.error("Error in getLogFileById:", error);
     return null;
   }
 };
@@ -353,7 +288,6 @@ export const deleteLogFile = async (id: string): Promise<boolean> => {
       };
 
       request.onerror = (event) => {
-        console.error("Error deleting log file:", event);
         reject("Failed to delete log file");
       };
 
@@ -362,7 +296,6 @@ export const deleteLogFile = async (id: string): Promise<boolean> => {
       };
     });
   } catch (error) {
-    console.error("Error in deleteLogFile:", error);
     return false;
   }
 };
@@ -403,13 +336,11 @@ export const updateLogFile = async (
         };
 
         putRequest.onerror = (event) => {
-          console.error("Error updating log file:", event);
           reject("Failed to update log file");
         };
       };
 
       getRequest.onerror = (event) => {
-        console.error("Error getting log file for update:", event);
         reject("Failed to get log file for update");
       };
 
@@ -418,22 +349,17 @@ export const updateLogFile = async (
       };
     });
   } catch (error) {
-    console.error("Error in updateLogFile:", error);
     return false;
   }
 };
 
 // Reset the database (for troubleshooting)
 export const resetDatabase = async (): Promise<boolean> => {
-  console.warn(
-    "DISABLED: resetDatabase was called but is now disabled to prevent data loss",
-  );
   // Instead of deleting the database, just initialize it if it doesn't exist
   try {
     await initDB();
     return true;
   } catch (error) {
-    console.error(`Error in resetDatabase:`, error);
     return false;
   }
 };

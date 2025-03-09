@@ -49,6 +49,8 @@ interface LogFile {
   isLoading?: boolean;
   notes?: string;
   tags?: string[];
+  interestingLines?: number[];
+  showOnlyMarked?: boolean;
 }
 
 const Home = () => {
@@ -341,27 +343,17 @@ const Home = () => {
   };
 
   const handleRecentFileSelect = async (recentFile: RecentFile) => {
-    console.log(
-      "Selected recent file:",
-      recentFile.name,
-      "with ID:",
-      recentFile.id,
-    );
-
     // Check if the ID is a random number (old format) and convert to new format if needed
     if (recentFile.id.match(/^0\.[0-9]+$/)) {
-      console.log("Converting old ID format to new format");
       recentFile.id =
         recentFile.name.replace(/[^a-z0-9]/gi, "_") +
         "_" +
         recentFile.lastOpened;
-      console.log("New ID format:", recentFile.id);
     }
 
     // Check if the file is already loaded in the current session
     const existingFile = files.find((f) => f.id === recentFile.id);
     if (existingFile) {
-      console.log("File already loaded in current session, activating tab");
       setActiveFileId(existingFile.id);
       return;
     }
@@ -380,19 +372,9 @@ const Home = () => {
 
       // Get all files from the database
       const allFiles = await getAllLogFiles();
-      console.log(
-        "All files in IndexedDB:",
-        allFiles.length,
-        "Recent files in localStorage:",
-        recentFilesExist,
-      );
 
       // If we have recent files in localStorage but none in IndexedDB, don't reset the database
-      // Just log the inconsistency
       if (recentFilesExist && allFiles.length === 0) {
-        console.log(
-          "Inconsistency detected: Files in localStorage but none in IndexedDB",
-        );
         // Do not reset the database as it might cause data loss
         // await resetDatabase();
       }
@@ -412,23 +394,8 @@ const Home = () => {
 
       // Try to load from IndexedDB
       const logFile = await getLogFileById(recentFile.id);
-      console.log(
-        "Loaded file from IndexedDB:",
-        logFile?.id,
-        logFile?.name,
-        "Content length:",
-        logFile?.content?.length,
-      );
 
       if (logFile && logFile.content && logFile.content.length > 0) {
-        console.log(
-          "Successfully loaded file from IndexedDB:",
-          logFile.id,
-          logFile.name,
-          "Content length:",
-          logFile.content.length,
-        );
-
         // Convert date strings back to Date objects
         const processedFile = {
           ...logFile,
@@ -448,6 +415,8 @@ const Home = () => {
             : undefined,
           notes: logFile.notes || "",
           tags: logFile.tags || [],
+          interestingLines: logFile.interestingLines || [],
+          showOnlyMarked: logFile.showOnlyMarked || false,
         };
 
         // Add file to state
@@ -827,8 +796,6 @@ const Home = () => {
           endDate: endDate?.toISOString(),
         };
 
-        console.log("Created recent file with ID:", fileId);
-
         // Update recent files in localStorage
         try {
           const storedFiles = localStorage.getItem("logTrawler_recentFiles");
@@ -882,23 +849,7 @@ const Home = () => {
               tags: [], // Initialize with empty tags
             };
 
-            console.log(
-              "Saving file to IndexedDB with ID:",
-              fileToSave.id,
-              "and name:",
-              fileToSave.name,
-            );
-
-            saveLogFile(fileToSave)
-              .then((savedId) => {
-                console.log(
-                  "Successfully saved file to IndexedDB with ID:",
-                  savedId,
-                );
-              })
-              .catch((err) =>
-                console.error("Failed to save to IndexedDB:", err),
-              );
+            saveLogFile(fileToSave).catch((err) => {});
           });
         } catch (error) {
           console.error("Error importing IndexedDB module:", error);
@@ -913,11 +864,6 @@ const Home = () => {
       prev.map((file) => {
         const processedFile = processedFiles.find((pf) => pf.id === file.id);
         if (processedFile) {
-          console.log(
-            "Replacing loading file with processed file:",
-            processedFile.id,
-            processedFile.name,
-          );
           return processedFile;
         }
         return file;
@@ -953,6 +899,8 @@ const Home = () => {
   const handleRemoveFile = (fileId: string) => {
     // Save filters before removing the file
     const fileToRemove = files.find((f) => f.id === fileId);
+    if (!fileToRemove) return;
+
     if (
       fileToRemove &&
       fileToRemove.filters &&
@@ -986,9 +934,6 @@ const Home = () => {
         localStorage.setItem(
           "logTrawler_recentFiles",
           JSON.stringify(updatedFiles),
-        );
-        console.log(
-          "Removed file from localStorage only, preserving in IndexedDB",
         );
       }
     } catch (error) {
@@ -1260,56 +1205,63 @@ const Home = () => {
             <ThemeToggle />
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            <TimeRangeFilter
-              startDate={
-                activeFile?.timeRange?.startDate || activeFile?.startDate
-              }
-              endDate={activeFile?.timeRange?.endDate || activeFile?.endDate}
-              onRangeChange={(start, end) => {
-                // Update the time range in the same way as chart selection
-                handleTimeRangeSelect(start, end);
+            {activeFileId && (
+              <>
+                <TimeRangeFilter
+                  startDate={
+                    activeFile?.timeRange?.startDate || activeFile?.startDate
+                  }
+                  endDate={
+                    activeFile?.timeRange?.endDate || activeFile?.endDate
+                  }
+                  onRangeChange={(start, end) => {
+                    // Update the time range in the same way as chart selection
+                    handleTimeRangeSelect(start, end);
 
-                // Reset the chart selection when using the date pickers
-                if (activeFile) {
-                  setFiles((prev) =>
-                    prev.map((file) => {
-                      if (file.id === activeFile.id) {
-                        return {
-                          ...file,
-                          timeRange: { startDate: start, endDate: end },
-                        };
-                      }
-                      return file;
-                    }),
-                  );
-                }
-              }}
-            />
-            <div className="hidden lg:block text-sm text-muted-foreground whitespace-nowrap">
-              Total Lines:{" "}
-              <span className="font-medium">
-                {activeFile?.content.length.toLocaleString() || 0}
-              </span>
-              <span className="mx-2">•</span>
-              Visible Lines:{" "}
-              <span className="font-medium">
-                {visibleEntries.length.toLocaleString()}
-              </span>
-              <span className="mx-2">•</span>(
-              {(
-                (visibleEntries.length / (activeFile?.content.length || 1)) *
-                100
-              ).toFixed(1)}
-              % visible)
-            </div>
-            {activeFile && (
-              <ExportButton
-                fileName={activeFile.name}
-                content={visibleEntries.map(
-                  (entry) => activeFile.content[entry.lineNumber - 1],
+                    // Reset the chart selection when using the date pickers
+                    if (activeFile) {
+                      setFiles((prev) =>
+                        prev.map((file) => {
+                          if (file.id === activeFile.id) {
+                            return {
+                              ...file,
+                              timeRange: { startDate: start, endDate: end },
+                            };
+                          }
+                          return file;
+                        }),
+                      );
+                    }
+                  }}
+                />
+                <div className="hidden lg:block text-sm text-muted-foreground whitespace-nowrap">
+                  Total Lines:{" "}
+                  <span className="font-medium">
+                    {activeFile?.content.length.toLocaleString() || 0}
+                  </span>
+                  <span className="mx-2">•</span>
+                  Visible Lines:{" "}
+                  <span className="font-medium">
+                    {visibleEntries.length.toLocaleString()}
+                  </span>
+                  <span className="mx-2">•</span>(
+                  {(
+                    (visibleEntries.length /
+                      (activeFile?.content.length || 1)) *
+                    100
+                  ).toFixed(1)}
+                  % visible)
+                </div>
+                {activeFile && (
+                  <ExportButton
+                    fileName={activeFile.name}
+                    content={visibleEntries.map(
+                      (entry) => activeFile.content[entry.lineNumber - 1],
+                    )}
+                    disabled={!visibleEntries.length}
+                  />
                 )}
-                disabled={!visibleEntries.length}
-              />
+              </>
             )}
             <Button
               variant="outline"
@@ -1352,7 +1304,15 @@ const Home = () => {
                 </p>
               </div>
             </div>
-            <RecentFiles onFileSelect={handleRecentFileSelect} />
+            <RecentFiles
+              onFileSelect={handleRecentFileSelect}
+              onMultipleFilesSelect={async (files) => {
+                // Process files one by one in sequence
+                for (const file of files) {
+                  await handleRecentFileSelect(file);
+                }
+              }}
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -1451,8 +1411,13 @@ const Home = () => {
                     }}
                   >
                     <div className="relative z-10 flex items-center">
-                      <span className="truncate" title={file.name}>
-                        {file.name}
+                      <span
+                        className="truncate"
+                        title={file.name.length > 20 ? file.name : undefined}
+                      >
+                        {file.name.length > 20
+                          ? `${file.name.substring(0, 20)}...`
+                          : file.name}
                       </span>
                       <div
                         role="button"
@@ -1794,6 +1759,83 @@ const Home = () => {
                         onAddExclude={(term) =>
                           handleAddFilter(term, "exclude")
                         }
+                        fileId={activeFile.id}
+                        initialInterestingLines={
+                          activeFile.interestingLines || []
+                        }
+                        initialShowOnlyMarked={
+                          activeFile.showOnlyMarked || false
+                        }
+                        onUpdateInterestingLines={(fileId, lines) => {
+                          // Update in state
+                          setFiles((prev) =>
+                            prev.map((file) => {
+                              if (file.id === fileId) {
+                                return {
+                                  ...file,
+                                  interestingLines: lines,
+                                };
+                              }
+                              return file;
+                            }),
+                          );
+
+                          // Save to IndexedDB
+                          try {
+                            import("@/lib/indexedDB-fix").then(
+                              ({ updateLogFile }) => {
+                                updateLogFile(fileId, {
+                                  interestingLines: lines,
+                                }).catch((err) =>
+                                  console.error(
+                                    "Failed to update interesting lines in IndexedDB:",
+                                    err,
+                                  ),
+                                );
+                              },
+                            );
+                          } catch (error) {
+                            console.error(
+                              "Error importing IndexedDB module:",
+                              error,
+                            );
+                          }
+                        }}
+                        onUpdateShowOnlyMarked={(fileId, showOnly) => {
+                          // Update in state
+                          setFiles((prev) =>
+                            prev.map((file) => {
+                              if (file.id === fileId) {
+                                return {
+                                  ...file,
+                                  showOnlyMarked: showOnly,
+                                };
+                              }
+                              return file;
+                            }),
+                          );
+
+                          // Save to IndexedDB
+                          try {
+                            import("@/lib/indexedDB-fix").then(
+                              ({ updateLogFile }) => {
+                                updateLogFile(fileId, {
+                                  showOnlyMarked: showOnly,
+                                }).catch((err) =>
+                                  console.error(
+                                    "Failed to update showOnlyMarked in IndexedDB:",
+                                    err,
+                                  ),
+                                );
+                              },
+                            );
+                          } catch (error) {
+                            console.error(
+                              "Error importing IndexedDB module:",
+                              error,
+                            );
+                          }
+                        }}
                       />
                     </div>
                   </ResizablePanel>

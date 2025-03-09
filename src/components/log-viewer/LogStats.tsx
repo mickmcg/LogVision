@@ -65,16 +65,10 @@ const LogStats = (props: LogStatsProps) => {
           /^(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
         );
 
-      const level = levelMatch
-        ? levelMatch[1].toUpperCase() === "WARNING"
-          ? "WARN"
-          : levelMatch[1].toUpperCase() === "EMERGENCY"
-            ? "EMERG"
-            : levelMatch[1].toUpperCase()
-        : "OTHER";
+      const level = levelMatch ? levelMatch[1].toUpperCase() : "OTHER";
       levels.set(level, (levels.get(level) || 0) + 1);
       if (level === "ERROR") errorCount++;
-      if (level === "WARN") warningCount++;
+      if (level === "WARNING") warningCount++;
 
       // Track hourly distribution by level
       const parsedDate = parseTimestamp(entry.timestamp);
@@ -136,7 +130,19 @@ const LogStats = (props: LogStatsProps) => {
       border: "border-purple-300",
       bar: "bg-purple-500",
     },
+    EMERGENCY: {
+      bg: "bg-purple-200",
+      text: "text-purple-900",
+      border: "border-purple-300",
+      bar: "bg-purple-500",
+    },
     WARN: {
+      bg: "bg-yellow-100",
+      text: "text-yellow-800",
+      border: "border-yellow-200",
+      bar: "bg-yellow-400",
+    },
+    WARNING: {
       bg: "bg-yellow-100",
       text: "text-yellow-800",
       border: "border-yellow-200",

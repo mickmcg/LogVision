@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowUpDown, Trash2, Clock, FileText, StickyNote } from "lucide-react";
+import {
+  ArrowUpDown,
+  Trash2,
+  Clock,
+  FileText,
+  StickyNote,
+  Search,
+  FolderOpen,
+  Check,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import {
   Tooltip,
@@ -35,6 +45,7 @@ export interface RecentFile {
 
 interface RecentFilesProps {
   onFileSelect: (file: RecentFile) => void;
+  onMultipleFilesSelect?: (files: RecentFile[]) => void;
 }
 
 type SortField =
@@ -46,16 +57,24 @@ type SortField =
   | "endDate";
 type SortDirection = "asc" | "desc";
 
-const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
+const RecentFiles: React.FC<RecentFilesProps> = ({
+  onFileSelect,
+  onMultipleFilesSelect,
+}) => {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [sortField, setSortField] = useState<SortField>("lastOpened");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // First try to load from localStorage for backward compatibility
     const storedFiles = localStorage.getItem("logTrawler_recentFiles");
     if (storedFiles) {
       try {
+        // Immediately show localStorage files
         setRecentFiles(JSON.parse(storedFiles));
       } catch (error) {
         console.error("Failed to parse recent files from localStorage", error);
@@ -63,42 +82,32 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
       }
     }
 
+    // Preload the IndexedDB module to reduce delay
+    const indexedDBPromise = import("@/lib/indexedDB-fix");
+
     // Then try to load from IndexedDB and merge with localStorage files
     const loadFromIndexedDB = async () => {
       try {
         // Initialize the database first to ensure it exists - use the fixed version
-        const { initDB, getAllLogFiles } = await import("@/lib/indexedDB-fix");
+        const { initDB, getAllLogFiles } = await indexedDBPromise;
         await initDB();
 
-        console.log("Fetching files from IndexedDB...");
+        // Use a more efficient approach with Promise.all
         const indexedDBFiles = await getAllLogFiles();
-        console.log(
-          "Retrieved files from IndexedDB:",
-          indexedDBFiles?.length || 0,
-        );
 
         if (indexedDBFiles && indexedDBFiles.length > 0) {
-          // Convert IndexedDB files to RecentFile format
-          const formattedFiles = indexedDBFiles.map((file) => {
-            console.log(
-              "IndexedDB file:",
-              file.id,
-              file.name,
-              "Content length:",
-              file.content?.length,
-            );
-            return {
-              id: file.id,
-              name: file.name,
-              lastOpened: file.lastOpened,
-              size: file.size,
-              lines: file.content?.length,
-              startDate: file.startDate,
-              endDate: file.endDate,
-              tags: file.tags,
-              notes: file.notes,
-            };
-          });
+          // Convert IndexedDB files to RecentFile format - use a more efficient map
+          const formattedFiles = indexedDBFiles.map((file) => ({
+            id: file.id,
+            name: file.name,
+            lastOpened: file.lastOpened,
+            size: file.size,
+            lines: file.content?.length,
+            startDate: file.startDate,
+            endDate: file.endDate,
+            tags: file.tags,
+            notes: file.notes,
+          }));
 
           // Merge with localStorage files, prioritizing IndexedDB entries
           setRecentFiles((prev) => {
@@ -118,10 +127,24 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
         }
       } catch (error) {
         console.error("Failed to load files from IndexedDB", error);
+      } finally {
+        // Set loading state to false when done
+        setIsLoading(false);
       }
     };
 
-    loadFromIndexedDB();
+    // Use requestIdleCallback if available for better performance
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => loadFromIndexedDB(), { timeout: 2000 });
+    } else {
+      // Fallback to setTimeout with a short delay to allow UI to render first
+      setTimeout(loadFromIndexedDB, 100);
+    }
+
+    // Clean up function
+    return () => {
+      // Cancel any pending operations if component unmounts
+    };
   }, []);
 
   const handleSort = (field: SortField) => {
@@ -133,36 +156,62 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
     }
   };
 
-  const sortedFiles = [...recentFiles].sort((a, b) => {
-    let comparison = 0;
-    switch (sortField) {
-      case "name":
-        comparison = a.name.localeCompare(b.name);
-        break;
-      case "lastOpened":
-        comparison = a.lastOpened - b.lastOpened;
-        break;
-      case "size":
-        comparison = (a.size || 0) - (b.size || 0);
-        break;
-      case "lines":
-        comparison = (a.lines || 0) - (b.lines || 0);
-        break;
-      case "startDate":
-        comparison =
-          a.startDate && b.startDate
-            ? new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-            : 0;
-        break;
-      case "endDate":
-        comparison =
-          a.endDate && b.endDate
-            ? new Date(a.endDate).getTime() - new Date(b.endDate).getTime()
-            : 0;
-        break;
-    }
-    return sortDirection === "asc" ? comparison : -comparison;
-  });
+  // Memoize filtered files to avoid recalculating on every render
+  const filteredFiles = React.useMemo(() => {
+    if (!searchTerm) return recentFiles;
+
+    const searchLower = searchTerm.toLowerCase();
+    return recentFiles.filter((file) => {
+      // Match on filename
+      if (file.name.toLowerCase().includes(searchLower)) return true;
+
+      // Match on tags
+      if (
+        file.tags &&
+        file.tags.some((tag) => tag.toLowerCase().includes(searchLower))
+      )
+        return true;
+
+      return false;
+    });
+  }, [recentFiles, searchTerm]);
+
+  // Memoize sorted files to avoid recalculating on every render
+  const sortedFiles = React.useMemo(
+    () =>
+      [...filteredFiles].sort((a, b) => {
+        let comparison = 0;
+        switch (sortField) {
+          case "name":
+            comparison = a.name.localeCompare(b.name);
+            break;
+          case "lastOpened":
+            comparison = a.lastOpened - b.lastOpened;
+            break;
+          case "size":
+            comparison = (a.size || 0) - (b.size || 0);
+            break;
+          case "lines":
+            comparison = (a.lines || 0) - (b.lines || 0);
+            break;
+          case "startDate":
+            comparison =
+              a.startDate && b.startDate
+                ? new Date(a.startDate).getTime() -
+                  new Date(b.startDate).getTime()
+                : 0;
+            break;
+          case "endDate":
+            comparison =
+              a.endDate && b.endDate
+                ? new Date(a.endDate).getTime() - new Date(b.endDate).getTime()
+                : 0;
+            break;
+        }
+        return sortDirection === "asc" ? comparison : -comparison;
+      }),
+    [filteredFiles, sortField, sortDirection],
+  );
 
   const clearAllHistory = () => {
     // Clear localStorage
@@ -251,39 +300,102 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
             <Clock className="h-4 w-4" />
             Recent Files
           </CardTitle>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Clear History
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Clear Recent Files History</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will remove all recent files from your history and delete
-                  all log files from storage. This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={clearAllHistory}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          <div className="flex items-center gap-2">
+            {selectionMode ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedFiles.size > 0 && onMultipleFilesSelect) {
+                      const filesToOpen = recentFiles.filter((file) =>
+                        selectedFiles.has(file.id),
+                      );
+                      onMultipleFilesSelect(filesToOpen);
+                      setSelectionMode(false);
+                      setSelectedFiles(new Set());
+                    }
+                  }}
+                  disabled={selectedFiles.size === 0}
                 >
-                  Clear All
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                  <Check className="h-4 w-4 mr-1" />
+                  Open Selected ({selectedFiles.size})
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectionMode(false);
+                    setSelectedFiles(new Set());
+                  }}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectionMode(true)}
+              >
+                <FolderOpen className="h-4 w-4 mr-1" />
+                Select Multiple
+              </Button>
+            )}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Clear History
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Clear Recent Files History
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove all recent files from your history and
+                    delete all log files from storage. This action cannot be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={clearAllHistory}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Clear All
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+        <div className="mt-2 relative">
+          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by filename or tag..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8"
+          />
         </div>
       </CardHeader>
       <CardContent>
+        {isLoading && (
+          <div className="flex justify-center items-center py-4">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span className="ml-2 text-sm text-muted-foreground">
+              Loading files...
+            </span>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -349,48 +461,82 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
               {sortedFiles.map((file) => (
                 <tr
                   key={file.id}
-                  className="border-b border-muted hover:bg-muted/50"
+                  className={`border-b border-muted hover:bg-muted/50 ${selectedFiles.has(file.id) ? "bg-primary/10" : ""}`}
+                  onClick={() => {
+                    if (selectionMode) {
+                      setSelectedFiles((prev) => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(file.id)) {
+                          newSet.delete(file.id);
+                        } else {
+                          newSet.add(file.id);
+                        }
+                        return newSet;
+                      });
+                    }
+                  }}
                 >
                   <td className="py-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            className="flex items-center gap-2 text-primary hover:underline"
-                            onClick={() => onFileSelect(file)}
-                          >
-                            <FileText className="h-4 w-4" />
-                            {file.name}
-                            {file.notes && file.notes.trim() !== "" && (
+                    {selectionMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.has(file.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSelectedFiles((prev) => {
+                            const newSet = new Set(prev);
+                            if (e.target.checked) {
+                              newSet.add(file.id);
+                            } else {
+                              newSet.delete(file.id);
+                            }
+                            return newSet;
+                          });
+                        }}
+                        className="mr-2"
+                      />
+                    )}
+                    <button
+                      className="flex items-center gap-2 text-primary hover:underline"
+                      onClick={(e) => {
+                        if (!selectionMode) {
+                          onFileSelect(file);
+                        }
+                      }}
+                    >
+                      <FileText className="h-4 w-4" />
+                      {file.name}
+                      {file.notes && file.notes.trim() !== "" && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
                               <StickyNote
-                                className="h-3 w-3 text-blue-500 ml-1"
+                                className="h-3 w-3 text-blue-500 ml-1 cursor-help"
                                 aria-label="Has notes"
                               />
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                              (ID: {file.id.substring(0, 8)}...)
-                            </span>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            Click to open from IndexedDB or file selector if not
-                            found.
-                            {file.notes && file.notes.trim() !== "" && (
-                              <span className="block text-xs text-blue-500 mt-1">
-                                This file has saved notes
-                              </span>
-                            )}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="max-w-xs">
+                                <p className="font-semibold text-xs mb-1">
+                                  Notes:
+                                </p>
+                                <p className="text-xs">
+                                  {file.notes.length > 200
+                                    ? `${file.notes.substring(0, 200)}...`
+                                    : file.notes}
+                                </p>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </button>
                     {file.tags && file.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {file.tags.map((tag, index) => (
                           <span
                             key={index}
-                            className="inline-flex text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-sm"
+                            className="inline-flex text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-sm"
                           >
                             {tag}
                           </span>

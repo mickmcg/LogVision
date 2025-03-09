@@ -128,7 +128,7 @@ const ActiveFilters = ({
           "INFO",
           "NOTICE",
           "WARN",
-          "WARNING",
+          "WARNING", // Keep both WARN and WARNING as separate levels
           "ERROR",
           "SEVERE",
           "CRITICAL",
