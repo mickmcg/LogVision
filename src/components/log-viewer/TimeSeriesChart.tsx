@@ -607,7 +607,7 @@ function TimeSeriesChart(props) {
           enabled: true,
           mode: "index" as const,
           intersect: false,
-          animation: false,
+          animation: false as const,
           backgroundColor: "rgba(0, 0, 0, 0.8)",
           titleFont: { size: 12 },
           bodyFont: { size: 11 },
