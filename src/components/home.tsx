@@ -1686,8 +1686,8 @@ const Home = () => {
                                         ...f,
                                         type:
                                           f.type === "include"
-                                            ? "exclude"
-                                            : "include",
+                                            ? ("exclude" as const)
+                                            : ("include" as const),
                                       }
                                     : f,
                                 );

@@ -344,7 +344,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({ onFileSelect }) => {
                             {file.notes && file.notes.trim() !== "" && (
                               <StickyNote
                                 className="h-3 w-3 text-blue-500 ml-1"
-                                title="Has notes"
+                                aria-label="Has notes"
                               />
                             )}
                             <span className="text-xs text-muted-foreground">
