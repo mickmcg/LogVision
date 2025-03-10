@@ -186,6 +186,51 @@ export const getAllLogFiles = async (): Promise<LogFileData[]> => {
   }
 };
 
+// Get only metadata for all log files (without content) for faster loading
+export const getLogFilesMetadata = async (): Promise<
+  Omit<LogFileData, "content">[]
+> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([LOG_FILES_STORE], "readonly");
+      const store = transaction.objectStore(LOG_FILES_STORE);
+
+      // Use getAll with a cursor to only retrieve metadata
+      const request = store.openCursor();
+      const metadataFiles: Omit<LogFileData, "content">[] = [];
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          // Extract everything except the content
+          const { content, ...metadata } = cursor.value;
+          // Add the line count but not the content itself
+          metadataFiles.push({
+            ...metadata,
+            lines: content?.length || 0,
+          });
+          cursor.continue();
+        } else {
+          // Sort by lastOpened in descending order
+          metadataFiles.sort((a, b) => b.lastOpened - a.lastOpened);
+          resolve(metadataFiles);
+        }
+      };
+
+      request.onerror = (event) => {
+        reject("Failed to get log files metadata");
+      };
+
+      transaction.oncomplete = () => {
+        db.close();
+      };
+    });
+  } catch (error) {
+    return [];
+  }
+};
+
 // Get a log file by ID
 export const getLogFileById = async (
   id: string,

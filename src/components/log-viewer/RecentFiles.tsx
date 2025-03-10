@@ -92,8 +92,9 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         const { initDB, getAllLogFiles } = await indexedDBPromise;
         await initDB();
 
-        // Use a more efficient approach with Promise.all
-        const indexedDBFiles = await getAllLogFiles();
+        // Get only metadata without loading full file contents
+        const { getLogFilesMetadata } = await indexedDBPromise;
+        const indexedDBFiles = await getLogFilesMetadata();
 
         if (indexedDBFiles && indexedDBFiles.length > 0) {
           // Convert IndexedDB files to RecentFile format - use a more efficient map
@@ -102,7 +103,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
             name: file.name,
             lastOpened: file.lastOpened,
             size: file.size,
-            lines: file.content?.length,
+            lines: file.lines,
             startDate: file.startDate,
             endDate: file.endDate,
             tags: file.tags,
