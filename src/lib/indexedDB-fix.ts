@@ -188,7 +188,7 @@ export const getAllLogFiles = async (): Promise<LogFileData[]> => {
 
 // Get only metadata for all log files (without content) for faster loading
 export const getLogFilesMetadata = async (): Promise<
-  Omit<LogFileData, "content">[]
+  (Omit<LogFileData, "content"> & { lines?: number })[]
 > => {
   try {
     const db = await initDB();
