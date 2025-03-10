@@ -70,30 +70,34 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // First try to load from localStorage for backward compatibility
+    // First try to load from localStorage for immediate display
     const storedFiles = localStorage.getItem("logTrawler_recentFiles");
     if (storedFiles) {
       try {
         // Immediately show localStorage files
-        setRecentFiles(JSON.parse(storedFiles));
+        const parsedFiles = JSON.parse(storedFiles);
+        // Only show the 20 most recent files for faster initial render
+        setRecentFiles(parsedFiles.slice(0, 20));
+        // Set loading to false if we have localStorage data
+        if (parsedFiles.length > 0) {
+          setIsLoading(false);
+        }
       } catch (error) {
         console.error("Failed to parse recent files from localStorage", error);
         setRecentFiles([]);
       }
     }
 
-    // Preload the IndexedDB module to reduce delay
-    const indexedDBPromise = import("@/lib/indexedDB-fix");
-
-    // Then try to load from IndexedDB and merge with localStorage files
-    const loadFromIndexedDB = async () => {
+    // Load IndexedDB data in the background with a small delay
+    const timer = setTimeout(async () => {
       try {
-        // Initialize the database first to ensure it exists - use the fixed version
-        const { initDB, getAllLogFiles } = await indexedDBPromise;
+        // Import the module dynamically
+        const { initDB, getLogFilesMetadata } = await import(
+          "@/lib/indexedDB-fix"
+        );
         await initDB();
 
         // Get only metadata without loading full file contents
-        const { getLogFilesMetadata } = await indexedDBPromise;
         const indexedDBFiles = await getLogFilesMetadata();
 
         if (indexedDBFiles && indexedDBFiles.length > 0) {
@@ -132,19 +136,11 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         // Set loading state to false when done
         setIsLoading(false);
       }
-    };
-
-    // Use requestIdleCallback if available for better performance
-    if (window.requestIdleCallback) {
-      window.requestIdleCallback(() => loadFromIndexedDB(), { timeout: 2000 });
-    } else {
-      // Fallback to setTimeout with a short delay to allow UI to render first
-      setTimeout(loadFromIndexedDB, 100);
-    }
+    }, 50); // Very small delay to prioritize UI rendering
 
     // Clean up function
     return () => {
-      // Cancel any pending operations if component unmounts
+      clearTimeout(timer);
     };
   }, []);
 
@@ -289,7 +285,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
     }
   };
 
-  if (recentFiles.length === 0) {
+  if (recentFiles.length === 0 && !isLoading) {
     return null;
   }
 
@@ -389,7 +385,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading && (
+        {isLoading && recentFiles.length === 0 && (
           <div className="flex justify-center items-center py-4">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="ml-2 text-sm text-muted-foreground">
