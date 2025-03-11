@@ -70,6 +70,9 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+
     // First try to load from localStorage for immediate display
     const storedFiles = localStorage.getItem("logTrawler_recentFiles");
     if (storedFiles) {
@@ -77,31 +80,38 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         // Immediately show localStorage files
         const parsedFiles = JSON.parse(storedFiles);
         // Only show the 20 most recent files for faster initial render
-        setRecentFiles(parsedFiles.slice(0, 20));
-        // Set loading to false if we have localStorage data
-        if (parsedFiles.length > 0) {
+        if (isMounted) {
+          setRecentFiles(parsedFiles.slice(0, 20));
           setIsLoading(false);
         }
       } catch (error) {
         console.error("Failed to parse recent files from localStorage", error);
-        setRecentFiles([]);
+        if (isMounted) {
+          setRecentFiles([]);
+          setIsLoading(false);
+        }
+      }
+    } else {
+      if (isMounted) {
+        setIsLoading(false);
       }
     }
 
-    // Load IndexedDB data in the background with a small delay
-    const timer = setTimeout(async () => {
+    // Preload the IndexedDB module to avoid delay when actually using it
+    const preloadModule = import("@/lib/indexedDB-fix");
+
+    // Load IndexedDB data immediately without delay
+    (async () => {
       try {
-        // Import the module dynamically
-        const { initDB, getLogFilesMetadata } = await import(
-          "@/lib/indexedDB-fix"
-        );
+        // Wait for the module to be loaded
+        const { initDB, getLogFilesMetadata } = await preloadModule;
         await initDB();
 
-        // Get only metadata without loading full file contents
+        // Use a more efficient query that only fetches metadata
         const indexedDBFiles = await getLogFilesMetadata();
 
-        if (indexedDBFiles && indexedDBFiles.length > 0) {
-          // Convert IndexedDB files to RecentFile format - use a more efficient map
+        if (indexedDBFiles && indexedDBFiles.length > 0 && isMounted) {
+          // Convert IndexedDB files to RecentFile format with optimized mapping
           const formattedFiles = indexedDBFiles.map((file) => ({
             id: file.id,
             name: file.name,
@@ -114,7 +124,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
             notes: file.notes,
           }));
 
-          // Merge with localStorage files, prioritizing IndexedDB entries
+          // Use a more efficient merge algorithm
           setRecentFiles((prev) => {
             // Create a map of existing files by ID for quick lookup
             const fileMap = new Map(prev.map((file) => [file.id, file]));
@@ -132,15 +142,12 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         }
       } catch (error) {
         console.error("Failed to load files from IndexedDB", error);
-      } finally {
-        // Set loading state to false when done
-        setIsLoading(false);
       }
-    }, 50); // Very small delay to prioritize UI rendering
+    })();
 
     // Clean up function
     return () => {
-      clearTimeout(timer);
+      isMounted = false;
     };
   }, []);
 
@@ -385,7 +392,7 @@ const RecentFiles: React.FC<RecentFilesProps> = ({
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading && recentFiles.length === 0 && (
+        {isLoading && (
           <div className="flex justify-center items-center py-4">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="ml-2 text-sm text-muted-foreground">

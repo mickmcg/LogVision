@@ -422,8 +422,10 @@ const LogDisplay = ({
   const scrollToBottom = () => {
     if (scrollContainerRef.current) {
       setScrolling(true);
+      // Calculate the total height based on filtered entries
+      const totalHeight = filteredEntries.length * 40;
       scrollContainerRef.current.scrollTo({
-        top: scrollContainerRef.current.scrollHeight,
+        top: totalHeight,
         behavior: "smooth",
       });
       setTimeout(() => setScrolling(false), 500);
@@ -435,8 +437,13 @@ const LogDisplay = ({
       setScrolling(true);
       const currentScroll = scrollContainerRef.current.scrollTop;
       const pageHeight = scrollContainerRef.current.clientHeight;
+      const itemHeight = 40; // Approximate height of each log entry
+      const visibleItems = Math.ceil(pageHeight / itemHeight);
+      const currentIndex = Math.floor(currentScroll / itemHeight);
+      const targetIndex = Math.max(0, currentIndex - visibleItems);
+
       scrollContainerRef.current.scrollTo({
-        top: Math.max(0, currentScroll - pageHeight),
+        top: targetIndex * itemHeight,
         behavior: "smooth",
       });
       setTimeout(() => setScrolling(false), 500);
@@ -448,9 +455,16 @@ const LogDisplay = ({
       setScrolling(true);
       const currentScroll = scrollContainerRef.current.scrollTop;
       const pageHeight = scrollContainerRef.current.clientHeight;
-      const maxScroll = scrollContainerRef.current.scrollHeight - pageHeight;
+      const itemHeight = 40; // Approximate height of each log entry
+      const visibleItems = Math.ceil(pageHeight / itemHeight);
+      const currentIndex = Math.floor(currentScroll / itemHeight);
+      const targetIndex = Math.min(
+        filteredEntries.length - visibleItems,
+        currentIndex + visibleItems,
+      );
+
       scrollContainerRef.current.scrollTo({
-        top: Math.min(maxScroll, currentScroll + pageHeight),
+        top: targetIndex * itemHeight,
         behavior: "smooth",
       });
       setTimeout(() => setScrolling(false), 500);
@@ -522,44 +536,6 @@ const LogDisplay = ({
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Jump to top</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <ButtonWithRef
-                        variant="ghost"
-                        size="icon"
-                        onClick={scrollPageUp}
-                        className="h-8 w-8"
-                        disabled={scrolling}
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </ButtonWithRef>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Page up</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <ButtonWithRef
-                        variant="ghost"
-                        size="icon"
-                        onClick={scrollPageDown}
-                        className="h-8 w-8"
-                        disabled={scrolling}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </ButtonWithRef>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Page down</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>

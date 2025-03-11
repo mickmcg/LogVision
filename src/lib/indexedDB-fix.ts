@@ -196,26 +196,23 @@ export const getLogFilesMetadata = async (): Promise<
       const transaction = db.transaction([LOG_FILES_STORE], "readonly");
       const store = transaction.objectStore(LOG_FILES_STORE);
 
-      // Use getAll with a cursor to only retrieve metadata
-      const request = store.openCursor();
-      const metadataFiles: Omit<LogFileData, "content">[] = [];
+      // Use getAll directly instead of cursor for better performance
+      const request = store.getAll();
 
       request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest).result;
-        if (cursor) {
-          // Extract everything except the content
-          const { content, ...metadata } = cursor.value;
-          // Add the line count but not the content itself
-          metadataFiles.push({
+        const files = (event.target as IDBRequest).result || [];
+        // Process all files at once instead of one by one
+        const metadataFiles = files.map((file) => {
+          const { content, ...metadata } = file;
+          return {
             ...metadata,
             lines: content?.length || 0,
-          });
-          cursor.continue();
-        } else {
-          // Sort by lastOpened in descending order
-          metadataFiles.sort((a, b) => b.lastOpened - a.lastOpened);
-          resolve(metadataFiles);
-        }
+          };
+        });
+
+        // Sort by lastOpened in descending order
+        metadataFiles.sort((a, b) => b.lastOpened - a.lastOpened);
+        resolve(metadataFiles);
       };
 
       request.onerror = (event) => {
