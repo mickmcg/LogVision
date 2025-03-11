@@ -985,7 +985,7 @@ const Home = () => {
     if (!activeFile) return;
 
     // Create a new reference to trigger re-render
-    const newLogic = logic === "AND" ? "AND" : "OR";
+    const newLogic = logic;
 
     setFiles((prev) =>
       prev.map((file) => {
