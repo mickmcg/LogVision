@@ -90,7 +90,7 @@ const Home = () => {
       if (activeFile.content.length > 10000) {
         // Start with a smaller batch for immediate feedback
         const initialBatch = activeFile.content
-          .slice(0, 2000)
+          .slice(0, 1000) // Reduced from 2000
           .map((line, i) => ({
             lineNumber: i + 1,
             ...parseLogLine(line),
@@ -140,8 +140,8 @@ const Home = () => {
           const worker = new Worker(workerUrl);
 
           // Set up batch processing with the worker
-          const batchSize = 20000; // Larger batches for worker
-          let currentIndex = 2000;
+          const batchSize = 10000; // Reduced from 20000 for better memory usage
+          let currentIndex = 1000; // Reduced from 2000
 
           worker.onmessage = (e) => {
             const results = e.data;
@@ -166,17 +166,17 @@ const Home = () => {
           };
 
           // Start the first worker batch
-          const firstBatch = activeFile.content.slice(2000, 2000 + batchSize);
+          const firstBatch = activeFile.content.slice(1000, 1000 + batchSize);
           worker.postMessage({
             lines: firstBatch,
-            startIndex: 2000,
+            startIndex: 1000,
             parseTimestampOnly: true,
           });
         } else {
           // Fallback to setTimeout approach with optimized batch processing
           setTimeout(() => {
-            const batchSize = 15000;
-            let currentIndex = 2000;
+            const batchSize = 7500; // Reduced from 15000
+            let currentIndex = 1000; // Reduced from 2000
 
             const processNextBatch = () => {
               if (currentIndex >= activeFile.content.length) return;
@@ -205,14 +205,8 @@ const Home = () => {
 
                 currentIndex += batchSize;
                 if (currentIndex < activeFile.content.length) {
-                  // Use requestIdleCallback if available, otherwise setTimeout
-                  if (window.requestIdleCallback) {
-                    window.requestIdleCallback(processNextBatch, {
-                      timeout: 500,
-                    });
-                  } else {
-                    setTimeout(processNextBatch, 10);
-                  }
+                  // Always use setTimeout with a longer delay to reduce CPU usage
+                  setTimeout(processNextBatch, 50); // Increased from 10ms
                 }
               });
             };
@@ -331,7 +325,13 @@ const Home = () => {
     });
 
     setVisibleEntries(filtered);
-  }, [processedEntries, activeFile]);
+  }, [
+    processedEntries,
+    activeFile,
+    activeFile?.filters,
+    activeFile?.filterLogic,
+    activeFile?.timeRange,
+  ]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -948,16 +948,17 @@ const Home = () => {
   ) => {
     if (!term || !activeFile) return;
 
-    const updatedFiles = (prev) => {
+    // Create a new filter object
+    const newFilter = { id: Math.random().toString(), type, term, isRegex };
+
+    // Update files state
+    setFiles((prev) => {
       return prev.map((file) => {
         if (file.id === activeFile.id) {
           const currentFilters = file.filters || [];
           const updatedFile = {
             ...file,
-            filters: [
-              ...currentFilters,
-              { id: Math.random().toString(), type, term, isRegex },
-            ],
+            filters: [...currentFilters, newFilter],
           };
 
           // Update in IndexedDB
@@ -977,27 +978,28 @@ const Home = () => {
         }
         return file;
       });
-    };
-
-    setFiles(updatedFiles);
+    });
   };
 
   const handleFilterLogicChange = (logic: "AND" | "OR") => {
     if (!activeFile) return;
+
+    // Create a new reference to trigger re-render
+    const newLogic = logic === "AND" ? "AND" : "OR";
 
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
           const updatedFile = {
             ...file,
-            filterLogic: logic,
+            filterLogic: newLogic,
           };
 
           // Update in IndexedDB
           try {
             import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
-                filterLogic: logic,
+                filterLogic: newLogic,
               }).catch((err) =>
                 console.error(
                   "Failed to update filter logic in IndexedDB:",
@@ -1022,7 +1024,8 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id && file.filters) {
-          const updatedFilters = file.filters.filter((f) => f.id !== id);
+          // Create a new array to ensure reference change
+          const updatedFilters = [...file.filters.filter((f) => f.id !== id)];
 
           // Update in IndexedDB when a filter is removed
           try {
@@ -1056,16 +1059,19 @@ const Home = () => {
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
+          // Create a new empty array to ensure reference change
+          const emptyFilters = [];
+
           const updatedFile = {
             ...file,
-            filters: [],
+            filters: emptyFilters,
           };
 
           // Update in IndexedDB when filters are cleared
           try {
             import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
-                filters: [],
+                filters: emptyFilters,
               }).catch((err) =>
                 console.error(
                   "Failed to update cleared filters in IndexedDB:",
@@ -1087,22 +1093,28 @@ const Home = () => {
   const handleTimeRangeSelect = (startDate?: Date, endDate?: Date) => {
     if (!activeFile) return;
 
+    // Create a new timeRange object to ensure reference change
+    const newTimeRange =
+      startDate || endDate ? { startDate, endDate } : undefined;
+
     setFiles((prev) =>
       prev.map((file) => {
         if (file.id === activeFile.id) {
           const updatedFile = {
             ...file,
-            timeRange: { startDate, endDate },
+            timeRange: newTimeRange,
           };
 
           // Update in IndexedDB
           try {
             import("@/lib/indexedDB-fix").then(({ updateLogFile }) => {
               updateLogFile(file.id, {
-                timeRange: {
-                  startDate: startDate?.toISOString(),
-                  endDate: endDate?.toISOString(),
-                },
+                timeRange: newTimeRange
+                  ? {
+                      startDate: startDate?.toISOString(),
+                      endDate: endDate?.toISOString(),
+                    }
+                  : undefined,
               }).catch((err) =>
                 console.error("Failed to update time range in IndexedDB:", err),
               );
@@ -1162,8 +1174,8 @@ const Home = () => {
   // Memoize chart entries to avoid re-processing on every render
   const chartEntries = useMemo(() => {
     if (!activeFile) return [];
-    // Use a sample of entries for the chart to improve performance
-    const sampleSize = Math.min(5000, activeFile.content.length);
+    // Use a smaller sample of entries for the chart to improve performance
+    const sampleSize = Math.min(2000, activeFile.content.length); // Reduced from 5000
     const step = Math.max(
       1,
       Math.floor(activeFile.content.length / sampleSize),
@@ -1591,37 +1603,12 @@ const Home = () => {
                       </ScrollArea>
                     </div>
                   </ResizablePanel>
-                  {!statsVisible && (
-                    <div className="w-8 flex items-start justify-center pt-4 hidden md:flex">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 sticky top-4"
-                        onClick={() => setStatsVisible(true)}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide lucide-chevron-right"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </Button>
-                    </div>
-                  )}
+
                   <ResizableHandle withHandle />
+
                   <ResizablePanel defaultSize={75}>
                     <div className="flex flex-col h-full">
                       <SearchBar
-                        searchTerm={searchTerm}
-                        isRegex={isRegexSearch}
                         onSearch={handleSearch}
                         onAddInclude={(term, isRegex) =>
                           handleAddFilter(term, "include", isRegex)
@@ -1629,109 +1616,49 @@ const Home = () => {
                         onAddExclude={(term, isRegex) =>
                           handleAddFilter(term, "exclude", isRegex)
                         }
+                        searchTerm={searchTerm}
+                        isRegex={isRegexSearch}
                       />
+
                       <ActiveFilters
-                        filters={activeFile.filters || []}
-                        entries={
-                          activeFile.timeRange?.startDate ||
-                          activeFile.timeRange?.endDate
-                            ? visibleEntries.map(
-                                (entry) =>
-                                  activeFile.content[entry.lineNumber - 1],
-                              )
-                            : activeFile.content
-                        }
+                        filters={activeFile?.filters}
+                        entries={activeFile?.content}
                         onRemoveFilter={handleRemoveFilter}
                         onToggleFilterType={(id) => {
-                          if (!activeFile) return;
-                          setFiles((prev) =>
-                            prev.map((file) => {
-                              if (file.id === activeFile.id && file.filters) {
-                                const updatedFilters = file.filters.map((f) =>
-                                  f.id === id
-                                    ? {
-                                        ...f,
-                                        type:
-                                          f.type === "include"
-                                            ? ("exclude" as const)
-                                            : ("include" as const),
-                                      }
-                                    : f,
-                                );
-
-                                // Update in IndexedDB when filter type is toggled
-                                try {
-                                  import("@/lib/indexedDB-fix").then(
-                                    ({ updateLogFile }) => {
-                                      updateLogFile(file.id, {
-                                        filters: updatedFilters,
-                                      }).catch((err) =>
-                                        console.error(
-                                          "Failed to update filter type in IndexedDB:",
-                                          err,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                } catch (error) {
-                                  console.error(
-                                    "Error importing IndexedDB module:",
-                                    error,
-                                  );
-                                }
-
-                                return {
-                                  ...file,
-                                  filters: updatedFilters,
-                                };
-                              }
-                              return file;
-                            }),
+                          if (!activeFile?.filters) return;
+                          const filter = activeFile.filters.find(
+                            (f) => f.id === id,
                           );
+                          if (!filter) return;
+
+                          handleAddFilter(
+                            filter.term,
+                            filter.type === "include" ? "exclude" : "include",
+                            filter.isRegex,
+                          );
+                          handleRemoveFilter(id);
                         }}
                         onClearAll={handleClearFilters}
-                        filterLogic={activeFile.filterLogic || "OR"}
+                        filterLogic={activeFile?.filterLogic || "OR"}
                         onFilterLogicChange={handleFilterLogicChange}
                         rightContent={
                           <FilterPresets
-                            currentFilters={activeFile.filters || []}
+                            currentFilters={activeFile?.filters || []}
                             presets={presets}
-                            onSavePreset={(name) =>
-                              setPresets((prev) => [
-                                ...prev,
-                                {
-                                  id: Math.random().toString(),
-                                  name,
-                                  filters: activeFile.filters || [],
-                                },
-                              ])
-                            }
+                            onSavePreset={(name) => {
+                              if (!activeFile?.filters) return;
+                              const newPreset = {
+                                id: Math.random().toString(),
+                                name,
+                                filters: activeFile.filters,
+                              };
+                              setPresets((prev) => [...prev, newPreset]);
+                            }}
                             onLoadPreset={(preset) => {
                               if (!activeFile) return;
                               setFiles((prev) =>
                                 prev.map((file) => {
                                   if (file.id === activeFile.id) {
-                                    // Update in IndexedDB when loading a preset
-                                    try {
-                                      import("@/lib/indexedDB-fix").then(
-                                        ({ updateLogFile }) => {
-                                          updateLogFile(file.id, {
-                                            filters: preset.filters,
-                                          }).catch((err) =>
-                                            console.error(
-                                              "Failed to update filters from preset in IndexedDB:",
-                                              err,
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    } catch (error) {
-                                      console.error(
-                                        "Error importing IndexedDB module:",
-                                        error,
-                                      );
-                                    }
-
                                     return {
                                       ...file,
                                       filters: preset.filters,
@@ -1741,17 +1668,18 @@ const Home = () => {
                                 }),
                               );
                             }}
-                            onDeletePreset={(id) =>
+                            onDeletePreset={(presetId) => {
                               setPresets((prev) =>
-                                prev.filter((p) => p.id !== id),
-                              )
-                            }
+                                prev.filter((p) => p.id !== presetId),
+                              );
+                            }}
                           />
                         }
                       />
+
                       <LogDisplay
                         entries={visibleEntries}
-                        filters={activeFile.filters || []}
+                        filters={activeFile?.filters}
                         searchTerm={searchTerm}
                         onAddInclude={(term) =>
                           handleAddFilter(term, "include")
@@ -1759,28 +1687,9 @@ const Home = () => {
                         onAddExclude={(term) =>
                           handleAddFilter(term, "exclude")
                         }
-                        fileId={activeFile.id}
-                        initialInterestingLines={
-                          activeFile.interestingLines || []
-                        }
-                        initialShowOnlyMarked={
-                          activeFile.showOnlyMarked || false
-                        }
+                        fileId={activeFile?.id}
                         onUpdateInterestingLines={(fileId, lines) => {
-                          // Update in state
-                          setFiles((prev) =>
-                            prev.map((file) => {
-                              if (file.id === fileId) {
-                                return {
-                                  ...file,
-                                  interestingLines: lines,
-                                };
-                              }
-                              return file;
-                            }),
-                          );
-
-                          // Save to IndexedDB
+                          // Update in IndexedDB
                           try {
                             import("@/lib/indexedDB-fix").then(
                               ({ updateLogFile }) => {
@@ -1801,21 +1710,10 @@ const Home = () => {
                             );
                           }
                         }}
+                        initialInterestingLines={activeFile?.interestingLines}
+                        initialShowOnlyMarked={activeFile?.showOnlyMarked}
                         onUpdateShowOnlyMarked={(fileId, showOnly) => {
-                          // Update in state
-                          setFiles((prev) =>
-                            prev.map((file) => {
-                              if (file.id === fileId) {
-                                return {
-                                  ...file,
-                                  showOnlyMarked: showOnly,
-                                };
-                              }
-                              return file;
-                            }),
-                          );
-
-                          // Save to IndexedDB
+                          // Update in IndexedDB
                           try {
                             import("@/lib/indexedDB-fix").then(
                               ({ updateLogFile }) => {
@@ -1841,35 +1739,18 @@ const Home = () => {
                   </ResizablePanel>
                 </ResizablePanelGroup>
               </div>
-            ) : null}
+            ) : (
+              <div className="flex items-center justify-center p-8">
+                <div className="text-center">
+                  <h3 className="text-lg font-medium">No file selected</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select a file from the tabs above or open a new log file.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
-      </div>
-      <div className="fixed bottom-4 right-4 flex items-center gap-2 text-muted-foreground text-sm">
-        <span>v1.0.0</span>
-        <a 
-          href="https://github.com/mickmcg/LogVision" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="hover:text-primary transition-colors"
-          title="View on GitHub"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide lucide-github"
-          >
-            <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-            <path d="M9 18c-4.51 2-5-2-7-2" />
-          </svg>
-        </a>
       </div>
     </div>
   );

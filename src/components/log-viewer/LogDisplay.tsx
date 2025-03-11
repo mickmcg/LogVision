@@ -177,7 +177,7 @@ const LogDisplay = ({
 
       const { scrollTop, clientHeight, scrollHeight } =
         scrollContainerRef.current;
-      const buffer = entries.length > 50000 ? 10 : 20; // Smaller buffer for very large datasets
+      const buffer = entries.length > 50000 ? 5 : 10; // Reduced buffer size
 
       // Calculate visible range based on scroll position
       const itemHeight = 40; // Approximate height of each log entry
@@ -188,41 +188,42 @@ const LogDisplay = ({
       const visibleItems = Math.ceil(clientHeight / itemHeight) + buffer * 2;
       const endIndex = Math.min(entries.length, startIndex + visibleItems);
 
-      // Only update state if the range has changed significantly (at least 5 items)
+      // Only update state if the range has changed significantly (increased threshold)
       if (
-        Math.abs(startIndex - visibleRange.start) > 5 ||
-        Math.abs(endIndex - visibleRange.end) > 5
+        Math.abs(startIndex - visibleRange.start) > 10 ||
+        Math.abs(endIndex - visibleRange.end) > 10
       ) {
         setVisibleRange({ start: startIndex, end: endIndex });
       }
     };
 
-    // Use throttled scroll handler for better performance
+    // Use debounced scroll handler instead of throttled for less frequent updates
     let scrollTimeout: number | null = null;
-    const throttledScrollHandler = () => {
-      if (scrollTimeout === null) {
-        scrollTimeout = window.setTimeout(() => {
-          handleScroll();
-          scrollTimeout = null;
-        }, 16); // ~60fps
+    const debouncedScrollHandler = () => {
+      if (scrollTimeout !== null) {
+        window.clearTimeout(scrollTimeout);
       }
+      scrollTimeout = window.setTimeout(() => {
+        handleScroll();
+        scrollTimeout = null;
+      }, 100); // Increased delay to 100ms
     };
 
     const scrollContainer = scrollContainerRef.current;
     if (scrollContainer) {
-      scrollContainer.addEventListener("scroll", throttledScrollHandler);
+      scrollContainer.addEventListener("scroll", debouncedScrollHandler);
       handleScroll(); // Initial calculation
     }
 
     return () => {
       if (scrollContainer) {
-        scrollContainer.removeEventListener("scroll", throttledScrollHandler);
+        scrollContainer.removeEventListener("scroll", debouncedScrollHandler);
       }
       if (scrollTimeout !== null) {
         window.clearTimeout(scrollTimeout);
       }
     };
-  }, [entries.length, visibleRange.start, visibleRange.end]);
+  }, [entries.length]);
 
   const getHighlights = (message: string) => {
     // Skip processing if no filters
@@ -485,7 +486,8 @@ const LogDisplay = ({
     }
   }, [showOnlyMarked, fileId, onUpdateShowOnlyMarked]);
 
-  // Filter entries if showing only marked lines
+  // Apply filters from parent component - entries should already be filtered
+  // Just apply the marked lines filter here
   const filteredEntries = showOnlyMarked
     ? entries.filter((entry) => interestingLines.has(entry.lineNumber))
     : entries;
