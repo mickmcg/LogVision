@@ -236,7 +236,9 @@ const LogStats = (props: LogStatsProps) => {
                   variant="ghost"
                   size="sm"
                   className="h-6 w-6 p-0"
-                  onClick={onToggle}
+                  onClick={() => {
+                    if (onToggle) onToggle();
+                  }}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
