@@ -47,7 +47,6 @@ const renderMarkdown = (content: string) => {
       renderer: renderer,
       gfm: true,
       breaks: true,
-      xhtml: false,
     });
 
     // Parse the markdown content
