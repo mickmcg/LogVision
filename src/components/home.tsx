@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { Upload, X } from "lucide-react";
+import { Upload, X, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import { FilterPresets, type FilterPreset } from "./log-viewer/FilterPresets";
 import ExportButton from "./log-viewer/ExportButton";
 import NotesPanel from "./log-viewer/NotesPanel";
 import TagsPanel from "./log-viewer/TagsPanel";
+import ChatPanel from "./chat-panel/ChatPanel";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -69,8 +70,30 @@ const Home = () => {
   const [loadingFiles, setLoadingFiles] = useState<{ [key: string]: number }>(
     {},
   );
+  const [chatPanelOpen, setChatPanelOpen] = useState(false);
 
   const activeFile = files.find((f) => f.id === activeFileId);
+
+  // Listen for custom event to open chat panel
+  React.useEffect(() => {
+    const handleSetChatPanelOpen = (event: CustomEvent<{ open: boolean }>) => {
+      if (event.detail.open) {
+        setChatPanelOpen(true);
+      }
+    };
+
+    document.addEventListener(
+      "setChatPanelOpen",
+      handleSetChatPanelOpen as EventListener,
+    );
+
+    return () => {
+      document.removeEventListener(
+        "setChatPanelOpen",
+        handleSetChatPanelOpen as EventListener,
+      );
+    };
+  }, []);
 
   // Process file content only when active file changes
   React.useEffect(() => {
@@ -1194,7 +1217,19 @@ const Home = () => {
       onDrop={handleDrop}
       onDragLeave={handleDragLeave}
     >
+      <ChatPanel
+        isOpen={chatPanelOpen}
+        onClose={() => setChatPanelOpen(false)}
+      />
       <div className="fixed bottom-4 right-4 flex items-center gap-2 text-muted-foreground z-10">
+        <Button
+          variant="outline"
+          size="icon"
+          className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={() => setChatPanelOpen(!chatPanelOpen)}
+        >
+          <Bot className="h-4 w-4" />
+        </Button>
         <a
           href="https://github.com/mickmcg/LogVision"
           target="_blank"
@@ -1216,7 +1251,7 @@ const Home = () => {
             <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
             <path d="M9 18c-4.51 2-5-2-7-2" />
           </svg>
-          <span className="text-xs">v0.2.0</span>
+          <span className="text-xs">v0.3.0</span>
         </a>
       </div>
       <div className="flex flex-col gap-2">

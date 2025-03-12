@@ -678,6 +678,40 @@ const LogDisplay = ({
             <button
               className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground gap-2"
               onClick={() => {
+                // Create a custom event to open the chat panel with a prompt
+                const event = new CustomEvent("openChatWithPrompt", {
+                  detail: {
+                    prompt: `My log file contains log message "${contextMenu.selection}" - what does it mean and what can I do about it?`,
+                  },
+                });
+                document.dispatchEvent(event);
+                setContextMenu(null);
+              }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="lucide lucide-bot"
+              >
+                <path d="M12 8V4H8"></path>
+                <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+                <path d="M2 14h2"></path>
+                <path d="M20 14h2"></path>
+                <path d="M15 13v2"></path>
+                <path d="M9 13v2"></path>
+              </svg>
+              Ask ChatGPT
+            </button>
+            <button
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground gap-2"
+              onClick={() => {
                 const url = `https://www.google.com/search?q=${encodeURIComponent(contextMenu.selection)}`;
                 // Use the simple URL opener function
                 openUrl(url);
