@@ -62,7 +62,13 @@ const LogStats = (props: LogStatsProps) => {
           /\s(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
         ) ||
         entry.message.match(
+          /\s(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY):/i,
+        ) ||
+        entry.message.match(
           /^(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+        ) ||
+        entry.message.match(
+          /^(TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY):/i,
         );
 
       const level = levelMatch ? levelMatch[1].toUpperCase() : "OTHER";

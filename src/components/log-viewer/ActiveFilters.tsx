@@ -146,7 +146,9 @@ const ActiveFilters = ({
         return (
           upperMessage.includes(`[${upperTerm}]`) ||
           upperMessage.includes(` ${upperTerm} `) ||
-          upperMessage.startsWith(upperTerm + " ")
+          upperMessage.includes(` ${upperTerm}:`) ||
+          upperMessage.startsWith(upperTerm + " ") ||
+          upperMessage.startsWith(upperTerm + ":")
         );
       }
 

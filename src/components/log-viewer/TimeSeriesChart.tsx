@@ -38,7 +38,18 @@ ChartJS.register(
   TimeScale,
 );
 
-function TimeSeriesChart(props) {
+interface TimeSeriesChartProps {
+  entries?: string[];
+  filteredEntries?: string[];
+  onTimeRangeSelect?: (start?: Date, end?: Date) => void;
+  bucketSize?: string;
+  onBucketSizeChange?: (size: string) => void;
+  fileStartDate?: Date;
+  fileEndDate?: Date;
+  timeRange?: { startDate?: Date; endDate?: Date };
+}
+
+function TimeSeriesChart(props: TimeSeriesChartProps) {
   const entries = props.entries || [];
   const filteredEntries = props.filteredEntries || [];
   const onTimeRangeSelect = props.onTimeRangeSelect || (() => {});
@@ -116,6 +127,9 @@ function TimeSeriesChart(props) {
             ) ||
             parsed.message.match(
               /\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
+            ) ||
+            parsed.message.match(
+              /\s(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY):/i,
             );
 
           const level = levelMatch
@@ -128,7 +142,15 @@ function TimeSeriesChart(props) {
                     /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY)\s/i,
                   )[1]
                   .toUpperCase()
-              : "OTHER";
+              : parsed.message.match(
+                    /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY):/i,
+                  )
+                ? parsed.message
+                    .match(
+                      /^(INFO|ERROR|WARN|WARNING|DEBUG|SEVERE|CRITICAL|FATAL|ALERT|EMERG|EMERGENCY):/i,
+                    )[1]
+                    .toUpperCase()
+                : "OTHER";
 
           newTimestampData.push({ date, level });
         }
@@ -419,13 +441,13 @@ function TimeSeriesChart(props) {
     selectedRange,
   ]);
 
-  const handleBucketChange = (value) => {
+  const handleBucketChange = (value: string) => {
     onBucketSizeChange(value);
     // Don't reset the selected range when changing bucket size
   };
 
   // Calculate optimal bucket size for a given time range
-  const calculateOptimalBucketSize = (startDate, endDate) => {
+  const calculateOptimalBucketSize = (startDate?: Date, endDate?: Date) => {
     if (!startDate || !endDate) return bucketSize;
 
     const diffMs = endDate.getTime() - startDate.getTime();
@@ -459,14 +481,14 @@ function TimeSeriesChart(props) {
     }
   };
 
-  const getMouseXPosition = (e) => {
+  const getMouseXPosition = (e: React.MouseEvent) => {
     if (!chartRef.current) return -1;
     const chart = chartRef.current;
     const rect = chart.canvas.getBoundingClientRect();
     return e.clientX - rect.left;
   };
 
-  const getIndexFromPosition = (x) => {
+  const getIndexFromPosition = (x: number) => {
     if (!chartRef.current) return -1;
     const chart = chartRef.current;
     const chartArea = chart.chartArea;
@@ -484,7 +506,7 @@ function TimeSeriesChart(props) {
     return Math.max(0, Math.min(chartData.labels.length - 1, index));
   };
 
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: React.MouseEvent) => {
     if (!chartRef.current) return;
 
     // Get the exact position within the chart area
@@ -503,7 +525,7 @@ function TimeSeriesChart(props) {
     }
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     if (!isSelecting || !chartRef.current) return;
 
     const chart = chartRef.current;
@@ -739,15 +761,17 @@ function TimeSeriesChart(props) {
                     },
                   ];
 
-                  return bucketSizes.map((bucket) => (
-                    <SelectItem
-                      key={bucket.value}
-                      value={bucket.value}
-                      disabled={bucket.ms < minBucketSizeMs}
-                    >
-                      {bucket.label}
-                    </SelectItem>
-                  ));
+                  return bucketSizes.map(
+                    (bucket: { value: string; label: string; ms: number }) => (
+                      <SelectItem
+                        key={bucket.value}
+                        value={bucket.value}
+                        disabled={bucket.ms < minBucketSizeMs}
+                      >
+                        {bucket.label}
+                      </SelectItem>
+                    ),
+                  );
                 })()}
               </SelectContent>
             </Select>
