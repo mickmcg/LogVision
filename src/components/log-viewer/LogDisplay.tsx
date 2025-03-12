@@ -682,6 +682,7 @@ const LogDisplay = ({
                 const event = new CustomEvent("openChatWithPrompt", {
                   detail: {
                     prompt: `My log file contains log message "${contextMenu.selection}" - what does it mean and what can I do about it?`,
+                    autoSubmit: true,
                   },
                 });
                 document.dispatchEvent(event);
