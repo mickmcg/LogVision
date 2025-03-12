@@ -47,8 +47,6 @@ const renderMarkdown = (content: string) => {
       renderer: renderer,
       gfm: true,
       breaks: true,
-      smartLists: true,
-      smartypants: true,
       xhtml: false,
     });
 
