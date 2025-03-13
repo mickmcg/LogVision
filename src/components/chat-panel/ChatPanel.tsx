@@ -33,23 +33,21 @@ const renderMarkdown = (content: string) => {
     const renderer = new marked.Renderer();
 
     // Custom code block renderer with syntax highlighting
-    renderer.code = function (code, language) {
-      // Extract the actual code text from the object if needed
-      let codeText;
-      if (typeof code === "object" && code !== null && code.text) {
-        codeText = code.text;
-        language = code.lang || language;
-      } else {
-        codeText = typeof code === "string" ? code : String(code);
-      }
+    renderer.code = function ({ text, lang, escaped }) {
+      // Extract the actual code text
+      const codeText = typeof text === "string" ? text : String(text || "");
+      const language = lang || "";
 
-      // Ensure code is properly escaped for HTML
-      const escapedCode = codeText
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      // If already escaped, use directly, otherwise escape
+      const escapedCode = escaped
+        ? codeText
+        : codeText
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+
       return `<pre><code class="${language ? `language-${language}` : ""}">${escapedCode}</code></pre>`;
     };
 
@@ -58,7 +56,6 @@ const renderMarkdown = (content: string) => {
       renderer: renderer,
       gfm: true,
       breaks: true,
-      sanitize: false,
       smartLists: true,
       smartypants: true,
       xhtml: false,
